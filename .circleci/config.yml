@@ -157,6 +157,10 @@ jobs:
         type: string
       values_file:
         type: string
+      aws_region:
+        type: string
+      aws_role_arn:
+        type: string
     steps:
       - aws-cli/setup:
           role_arn: << parameters.aws_role_arn >>
