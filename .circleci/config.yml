@@ -1,6 +1,7 @@
 version: 2.1
 
 orbs:
+  aws-cli: circleci/aws-cli@5.3.2
   docker: circleci/docker@2.2.0
   helm: circleci/helm@3.2.0
 
@@ -152,11 +153,13 @@ jobs:
         type: string
       code_version:
         type: string
-      release_name:
+      cluster_name:
         type: string
       values_file:
         type: string
     steps:
+      - aws-cli/setup:
+          role_arn: << parameters.aws_role_arn >>
       - helm/install_helm_client
       - docker/check:
           use-docker-credentials-store: true
@@ -175,11 +178,15 @@ jobs:
             echo
             echo << parameters.values_file >>:
             cat << parameters.values_file >>
-#      - run:
-#          name: Upgrade Kubernetes Cluster with Helm Chart
-#          command: |
-#            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
-#            helm upgrade --install << parameters.release_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
+      - run:
+          name: Configure EKS Cluster Access
+          command: |
+            aws eks --region << parameters.aws_region >> update-kubeconfig --name << parameters.cluster_name >>
+      - run:
+          name: Upgrade Kubernetes Cluster with Helm
+          command: |
+            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+            helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
 
 workflows:
   version: 2
@@ -241,9 +248,11 @@ workflows:
           name: update-kubernetes-cluster-dev
           docker_hub_repository_chart: pre-release-generic-agent-helm
           docker_hub_repository_image: pre-release-agent
-          release_name: hermes-agent-dev
+          cluster_name: hermes-agent-dev
           values_file: ./environments/dev/values_aws.yaml
           code_version: ${NEXT_VERSION}
+          aws_region: us-west-2
+          aws_role_arn: arn:aws:iam::REDACTED_AWS_ACCOUNT_ID:role/mc-circleci
           pre-steps:
             - checkout
             - generate-version-number-dev
