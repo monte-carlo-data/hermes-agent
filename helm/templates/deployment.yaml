@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment  
 metadata:
   name: mcd-agent-deployment
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -10,6 +11,7 @@ spec:
   template:
     metadata:
       name: mcd-agent
+      namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
       labels:
         app: mcd-agent
     spec:

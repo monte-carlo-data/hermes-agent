@@ -44,8 +44,8 @@ class OnPremService(BaseEgressAgentService):
             login_token_provider = LocalLoginTokenProvider()
         super().__init__(
             backend_service_url=_BACKEND_SERVICE_URL,
-            platform="OnPrem",
-            service_name="On Prem",
+            platform="Generic",
+            service_name="Generic Agent",
             config_manager=config_manager,
             logs_service=LogsService(),
             storage_service=EmptyStorageService(),
