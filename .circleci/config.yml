@@ -164,8 +164,10 @@ jobs:
       - run:
           name: Update version in values file
           command: |
-            echo repo: << parameters.docker_hub_repository >>
+            echo repo: << parameters.docker_hub_repository_image >>
             echo version: << parameters.code_version >>
+            echo values file: << parameters.values_file >>
+            echo
             # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
             export VERSION=<< parameters.code_version >>
             yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
