@@ -1,0 +1,7 @@
+apiVersion: v2
+name: pre-release-generic-agent-helm
+description: A Helm chart for a Monte Carlo Generic Agent
+
+type: application
+version: 0.0.1
+appVersion: "0.0.1"

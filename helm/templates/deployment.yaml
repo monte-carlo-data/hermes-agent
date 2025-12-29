@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment  
+metadata:
+  name: mcd-agent-deployment
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels: 
+      app: mcd-agent
+  template:
+    metadata:
+      name: mcd-agent
+      labels:
+        app: mcd-agent
+    spec:
+      serviceAccountName: mcd-agent-service-account
+      containers:
+        - name: mcd-generic-agent
+          image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: 
+            - containerPort: {{ .Values.container.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.container.port | quote }}
+            - name: BACKEND_SERVICE_URL
+              value: {{ .Values.container.backendServiceUrl | quote }}
+            - name: GUNICORN_WORKERS
+              value: {{ .Values.container.gunicornWorkers | quote }}
+            - name: GUNICORN_THREADS
+              value: {{ .Values.container.gunicornThreads | quote }}
+            - name: MCD_STORAGE_BUCKET_NAME
+              value: {{ .Values.container.storageBucketName | quote }}
+            - name: MCD_STORAGE
+              value: {{ .Values.container.storageType | quote }}
+            - name: MCD_OPS_RUNNER_THREAD_COUNT
+              value: {{ .Values.container.opsRunnerThreadCount | default "5" | int | quote}}
+            - name: MCD_PUBLISHER_THREAD_COUNT
+              value: {{ .Values.container.publisherThreadCount | default "2" | int | quote }}
+            - name: MCD_TOKEN_FILE_PATH
+              value: /etc/secrets/mcd-agent-token/contents.json
+          volumeMounts:
+            - name: mcd-agent-token-secret
+              mountPath: /etc/secrets/mcd-agent-token
+              readOnly: true
+      volumes:
+        - name: mcd-agent-token-secret
+          secret:
+            secretName: mcd-agent-token-secret

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service 
+metadata:
+  name: mcd-agent-loadbalancer-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+spec:
+  type: LoadBalancer
+  selector:
+    app: mcd-agent
+  ports: 
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.container.port }}
+{{- if .Values.service.loadBalancer -}}
+  {{- if .Values.service.loadBalancer.sourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml .Values.service.loadBalancer.sourceRanges | nindent 4 }}
+  {{- end }}
+{{- end }}

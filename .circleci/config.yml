@@ -95,6 +95,50 @@ jobs:
       - docker/push:
           image: montecarlodata/<< parameters.docker_hub_repository >>
           tag: latest-hermes,<< parameters.code_version >>-hermes
+  build-and-push-helm-chart:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository:
+        type: string
+      code_version:
+        type: string
+    steps:
+      - helm/install_helm_client
+      - docker/check:
+          use-docker-credentials-store: true
+      - run:
+          name: Install yq
+          command: |
+            VERSION=v4.50.1
+            PLATFORM=linux_amd64
+
+            wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
+            sudo mv yq_${PLATFORM} /usr/local/bin/yq
+      - run:
+          name: Update version and repo
+          command: |
+            echo repo: << parameters.docker_hub_repository >>
+            echo version: << parameters.code_version >>
+            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
+            export VERSION=<< parameters.code_version >>
+            # helm requires version to be semantic version compatible, so 0.0.1rc10 needs to be 0.0.1-rc10
+            export CHART_VERSION="$(echo $VERSION | sed 's/rc/-rc/')"
+            yq eval '.version = strenv(CHART_VERSION)' -i helm/Chart.yaml
+            yq eval '.appVersion = strenv(VERSION)' -i helm/Chart.yaml
+            yq eval '.name = "<< parameters.docker_hub_repository >>"' -i helm/Chart.yaml
+            echo
+            echo helm/Chart.yaml:
+            cat helm/Chart.yaml
+      - run:
+          name: Package Helm Chart
+          command: |
+            helm package helm
+      - run:
+          name: Push Helm Chart
+          command: |
+            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+            helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
 
 workflows:
   version: 2
@@ -141,3 +185,25 @@ workflows:
               only: /^v.*/
             branches:
               ignore: /.*/
+      - build-and-push-helm-chart:
+          name: build-and-push-helm-chart-dev
+          docker_hub_repository: pre-release-generic-agent-helm
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+          requires:
+            - build-and-push-dev
+      - build-and-push-helm-chart:
+          name: build-and-push-helm-chart-prod
+          docker_hub_repository: generic-agent-helm
+          code_version: ${VERSION_TAG}
+          pre-steps:
+            - checkout
+            - generate-version-number-prod
+          context:
+            - docker
+          requires:
+            - build-and-push-prod
