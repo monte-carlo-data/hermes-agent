@@ -99,13 +99,13 @@ jobs:
           use-buildkit: true  # to build only the required stages
           extra_build_args: --target hermes-generic --build-arg code_version=<< parameters.code_version >> --build-arg build_number=<< pipeline.number >>
           image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-hermes,<< parameters.code_version >>-hermes
+          tag: latest-generic,<< parameters.code_version >>-generic
       - verify-version-in-docker-image:
-          image: montecarlodata/<< parameters.docker_hub_repository >>:latest-hermes
+          image: montecarlodata/<< parameters.docker_hub_repository >>:latest-generic
           version: << parameters.code_version >>,<< pipeline.number >>
       - docker/push:
           image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-hermes,<< parameters.code_version >>-hermes
+          tag: latest-generic,<< parameters.code_version >>-generic
   build-and-push-helm-chart:
     machine:
       image: ubuntu-2204:current
@@ -178,7 +178,7 @@ jobs:
             # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
             export VERSION=<< parameters.code_version >>
             yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
-            yq eval '.image.tag = (strenv(VERSION) + "-hermes")' -i << parameters.values_file >>
+            yq eval '.image.tag = (strenv(VERSION) + "-generic")' -i << parameters.values_file >>
             echo
             echo << parameters.values_file >>:
             cat << parameters.values_file >>
