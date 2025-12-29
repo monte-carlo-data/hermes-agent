@@ -40,6 +40,16 @@ commands:
           echo "VERSION_TAG=${TAG#v}" >> $BASH_ENV
           source $BASH_ENV
         name: Generate prod version number
+  install_yq:
+    steps:
+    - run:
+        name: Install yq
+        command: |
+          VERSION=v4.50.1
+          PLATFORM=linux_amd64
+
+          wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
+          sudo mv yq_${PLATFORM} /usr/local/bin/yq
 
 jobs:
   run-linter:
@@ -107,14 +117,7 @@ jobs:
       - helm/install_helm_client
       - docker/check:
           use-docker-credentials-store: true
-      - run:
-          name: Install yq
-          command: |
-            VERSION=v4.50.1
-            PLATFORM=linux_amd64
-
-            wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
-            sudo mv yq_${PLATFORM} /usr/local/bin/yq
+      - install_yq
       - run:
           name: Update version and repo
           command: |
@@ -139,6 +142,38 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
+  update-kubernetes-cluster:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository:
+        type: string
+      code_version:
+        type: string
+      release_name:
+        type: string
+      values_file:
+        type: string
+    steps:
+      - helm/install_helm_client
+      - docker/check:
+          use-docker-credentials-store: true
+      - install_yq
+      - run:
+          name: Update version in values file
+          command: |
+            echo repo: << parameters.docker_hub_repository >>
+            echo version: << parameters.code_version >>
+            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository >>"' -i << parameters.values_file >>
+            yq eval '.image.tag = "<< parameters.code_version >>-hermes"' -i << parameters.values_file >>
+            echo
+            echo << parameters.values_file >>:
+            cat << parameters.values_file >>
+#      - run:
+#          name: Upgrade Kubernetes Cluster with Helm Chart
+#          command: |
+#            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+#            helm upgrade --install << parameters.release_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository >> --version ${CHART_VERSION} -f << parameters.values_file >>
 
 workflows:
   version: 2
@@ -196,6 +231,19 @@ workflows:
             - docker
           requires:
             - build-and-push-dev
+      - update-kubernetes-cluster:
+          name: update-kubernetes-cluster-dev
+          docker_hub_repository: pre-release-generic-agent-helm
+          release_name: hermes-agent-dev
+          values_file: ./environments/dev/values_aws.yaml
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+          requires:
+            - build-and-push-helm-chart-dev
       - build-and-push-helm-chart:
           name: build-and-push-helm-chart-prod
           docker_hub_repository: generic-agent-helm
