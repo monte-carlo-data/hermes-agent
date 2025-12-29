@@ -146,7 +146,9 @@ jobs:
     machine:
       image: ubuntu-2204:current
     parameters:
-      docker_hub_repository:
+      docker_hub_repository_chart:
+        type: string
+      docker_hub_repository_image:
         type: string
       code_version:
         type: string
@@ -164,8 +166,10 @@ jobs:
           command: |
             echo repo: << parameters.docker_hub_repository >>
             echo version: << parameters.code_version >>
-            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository >>"' -i << parameters.values_file >>
-            yq eval '.image.tag = "<< parameters.code_version >>-hermes"' -i << parameters.values_file >>
+            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
+            export VERSION=<< parameters.code_version >>
+            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
+            yq eval '.image.tag = (strenv(VERSION) + "-hermes")' -i << parameters.values_file >>
             echo
             echo << parameters.values_file >>:
             cat << parameters.values_file >>
@@ -173,7 +177,7 @@ jobs:
 #          name: Upgrade Kubernetes Cluster with Helm Chart
 #          command: |
 #            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
-#            helm upgrade --install << parameters.release_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository >> --version ${CHART_VERSION} -f << parameters.values_file >>
+#            helm upgrade --install << parameters.release_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
 
 workflows:
   version: 2
@@ -233,7 +237,8 @@ workflows:
             - build-and-push-dev
       - update-kubernetes-cluster:
           name: update-kubernetes-cluster-dev
-          docker_hub_repository: pre-release-generic-agent-helm
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
           release_name: hermes-agent-dev
           values_file: ./environments/dev/values_aws.yaml
           code_version: ${NEXT_VERSION}
