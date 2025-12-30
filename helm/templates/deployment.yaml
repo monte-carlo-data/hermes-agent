@@ -32,8 +32,8 @@ spec:
               value: {{ .Values.container.gunicornWorkers | quote }}
             - name: GUNICORN_THREADS
               value: {{ .Values.container.gunicornThreads | quote }}
-            - name: MCD_STORAGE_ACCOUNT_NAME
-              value: {{ .Values.container.storageAccountName | default "" |quote }}
+            - name: MCD_AGENT_WRAPPER_TYPE
+              value: KUBERNETES
             - name: MCD_STORAGE_BUCKET_NAME
               value: {{ .Values.container.storageBucketName | quote }}
             - name: MCD_STORAGE
@@ -44,6 +44,14 @@ spec:
               value: {{ .Values.container.publisherThreadCount | default "2" | int | quote }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
+            {{- if .Values.container.azureStorageAccountName }}
+            - name: MCD_STORAGE_ACCOUNT_NAME
+              value: {{ .Values.container.azureStorageAccountName | quote }}
+            {{- end }}
+            {{- if .Values.container.azureSubscriptionId }}
+            - name: AZURE_SUBSCRIPTION_ID
+              value: {{ .Values.container.azureSubscriptionId | quote }}
+            {{- end }}
           volumeMounts:
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token

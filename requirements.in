@@ -1,4 +1,2 @@
 agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@dev
 mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@dev
-azure-mgmt-resource==23.0.1
-
