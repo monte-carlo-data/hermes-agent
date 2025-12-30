@@ -45,7 +45,13 @@ spec:
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            - name: mcd-integrations-secrets
+              mountPath: /etc/secrets/integrations
+              readOnly: true
       volumes:
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        - name: mcd-integrations-secrets
+          secret:
+            secretName: mcd-integrations-secrets
