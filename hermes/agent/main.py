@@ -5,8 +5,6 @@ import signal
 import sys
 from typing import Any
 
-import jwt
-from apollo.integrations.azure_blob.utils import AzureUtils
 from flask import Flask
 from flask import make_response
 from flask import request
@@ -94,20 +92,6 @@ def run_reachability_test():
 
 
 enable_tcp_keep_alive()
-
-try:
-    creds = AzureUtils.get_default_credential()
-    logger.info(f"Default credential: {creds}")
-    token = creds.get_token("https://graph.microsoft.com/.default")
-    decoded_token = jwt.decode(token.token, options={"verify_signature": False})
-    if "upn" in decoded_token:
-        logger.info(f"User: {decoded_token['upn']}")
-    elif "appid" in decoded_token:
-        logger.info(f"App: {decoded_token['appid']}")
-    logger.info(f"Decoded token: {decoded_token}")
-except Exception as e:
-    logger.error(f"Error getting credentials: {e}")
-
 service.start()
 
 if __name__ == "__main__":

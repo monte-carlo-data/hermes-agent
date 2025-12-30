@@ -3,7 +3,6 @@ kind: Deployment
 metadata:
   name: mcd-agent-deployment
   namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
-  labels: {{ .Values.deploymentLabels | toYaml | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
@@ -15,6 +14,9 @@ spec:
       namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
       labels:
         app: mcd-agent
+        {{- if .Values.deploymentTemplateLabels }}
+        {{- .Values.deploymentTemplateLabels | toYaml | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: mcd-agent-service-account
       containers:
