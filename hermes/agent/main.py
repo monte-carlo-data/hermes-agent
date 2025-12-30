@@ -94,21 +94,22 @@ def run_reachability_test():
 
 
 enable_tcp_keep_alive()
+
+try:
+    creds = AzureUtils.get_default_credential()
+    logger.info(f"Default credential: {creds}")
+    token = creds.get_token("https://graph.microsoft.com/.default")
+    decoded_token = jwt.decode(token.token, options={"verify_signature": False})
+    if "upn" in decoded_token:
+        logger.info(f"User: {decoded_token['upn']}")
+    elif "appid" in decoded_token:
+        logger.info(f"App: {decoded_token['appid']}")
+    logger.info(f"Decoded token: {decoded_token}")
+except Exception as e:
+    logger.error(f"Error getting credentials: {e}")
+
 service.start()
 
 if __name__ == "__main__":
     # only used for local development, when gunicorn is not used
     app.run(host=SERVICE_HOST, port=int(SERVICE_PORT))
-
-    try:
-        creds = AzureUtils.get_default_credential()
-        logger.info(f"Default credential: {creds}")
-        token = creds.get_token("https://graph.microsoft.com/.default")
-        decoded_token = jwt.decode(token.token, options={"verify_signature": False})
-        if "upn" in decoded_token:
-            logger.info(f"User: {decoded_token['upn']}")
-        elif "appid" in decoded_token:
-            logger.info(f"App: {decoded_token['appid']}")
-        logger.info(f"Decoded token: {decoded_token}")
-    except Exception as e:
-        logger.error(f"Error getting credentials: {e}")
