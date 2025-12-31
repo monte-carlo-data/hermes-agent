@@ -144,7 +144,7 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
-  update-kubernetes-cluster:
+  update-kubernetes-aws-cluster:
     machine:
       image: ubuntu-2204:current
     parameters:
@@ -192,9 +192,14 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
-  test-azure-login:
+  update-kubernetes-azure-cluster:
     machine:
       image: ubuntu-2204:current
+    parameters:
+      resource_group:
+        type: string
+      cluster_name:
+        type: string
     steps:
       - checkout
       - azure-cli/install
@@ -203,6 +208,10 @@ jobs:
           command: |
             az login --service-principal --user "${AZURE_CLIENT_ID}" --tenant "${AZURE_TENANT_ID}" --federated-token "${CIRCLE_OIDC_TOKEN}"
       - run: az account show
+      - run:
+          name: Configure AKS Cluster
+          command: |
+            az aks get-credentials --resource-group << parameters.resource_group >> --name << parameters.cluster_name >>
 workflows:
   version: 2
 
@@ -259,8 +268,8 @@ workflows:
             - docker
           requires:
             - build-and-push-dev
-      - update-kubernetes-cluster:
-          name: update-kubernetes-cluster-dev
+      - update-kubernetes-aws-cluster:
+          name: update-kubernetes-aws-cluster-dev
           docker_hub_repository_chart: pre-release-generic-agent-helm
           docker_hub_repository_image: pre-release-agent
           cluster_name: hermes-agent-dev
@@ -286,6 +295,11 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
-      - test-azure-login:
+      - update-kubernetes-azure-cluster:
+          name: update-kubernetes-azure-cluster-dev
+          resource_group: agent-aks-test
+          cluster_name: hermes-agent-dev
           context:
             - az-sandbox
+#          requires:
+#            - build-and-push-dev
