@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   aws-cli: circleci/aws-cli@5.3.2
+  azure-cli: circleci/azure-cli@1.2.2
   docker: circleci/docker@2.2.0
   helm: circleci/helm@3.2.0
 
@@ -191,7 +192,17 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
-
+  test-azure-login:
+    machine:
+      image: ubuntu-2204:current
+    steps:
+      - checkout
+      - azure-cli/install
+      - run:
+          name: Azure login
+          command: |
+            az login --service-principal --user "${AZURE_CLIENT_ID}" --tenant "${AZURE_TENANT_ID}" --federated-token "${CIRCLE_OIDC_TOKEN}"
+      - run: az account show
 workflows:
   version: 2
 
@@ -275,3 +286,6 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
+      - test-azure-login:
+          context:
+            - az-sandbox
