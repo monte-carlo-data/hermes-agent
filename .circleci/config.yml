@@ -330,10 +330,10 @@ workflows:
           docker_hub_repository_chart: pre-release-generic-agent-helm
           docker_hub_repository_image: pre-release-agent
           values_file: ./environments/dev/values_az.yaml
-          code_version: 0.0.1rc71
+          code_version: ${NEXT_VERSION}
           resource_group: agent-aks-test
           cluster_name: hermes-agent-dev
           context:
             - az-sandbox
-#          requires:
-#            - build-and-push-dev
+          requires:
+            - build-and-push-dev
