@@ -333,6 +333,9 @@ workflows:
           code_version: ${NEXT_VERSION}
           resource_group: agent-aks-test
           cluster_name: hermes-agent-dev
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
           context:
             - az-sandbox
           requires:
