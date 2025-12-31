@@ -339,4 +339,4 @@ workflows:
           context:
             - az-sandbox
           requires:
-            - build-and-push-dev
+            - build-and-push-helm-chart-dev
