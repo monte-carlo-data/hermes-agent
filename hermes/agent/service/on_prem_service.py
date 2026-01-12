@@ -24,6 +24,7 @@ _BACKEND_SERVICE_URL = os.getenv(
     "https://artemis.getmontecarlo.com:443",
 )
 _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
+_NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class OnPremService(BaseEgressAgentService):
 
         self._operations_mapping.append(
             OperationMapping(
-                path="/api/v1/test/network/",
+                path=_NETWORK_PATH_PREFIX,
                 matching_type=OperationMatchingType.STARTS_WITH,
                 method=self._execute_network_operation,
                 schedule=True,
@@ -91,24 +92,25 @@ class OnPremService(BaseEgressAgentService):
         path = event.get("path")
 
         try:
-            if not path or not path.startswith("/api/v1/test/network/"):
+            if not path or not path.startswith(_NETWORK_PATH_PREFIX):
                 raise ValueError(f"Invalid path: {path}")
             if not isinstance(operation, dict):
                 raise ValueError(f"Invalid operation: {operation}")
 
-            if path == "/api/v1/test/network/outbound_ip_address":
+            network_command = path.lstrip(_NETWORK_PATH_PREFIX)
+            if network_command == "outbound_ip_address":
                 response = self._agent.get_outbound_ip_address()
                 self._schedule_push_results(operation_id, response.result)
                 return
 
             include_timeout = True
-            if path == "/api/v1/test/network/open":
+            if network_command == "open":
                 method = self._agent.validate_tcp_open_connection
-            elif path == "/api/v1/test/network/http":
+            elif network_command == "http":
                 method = self._agent.validate_http_connection
-            elif path == "/api/v1/test/network/telnet":
+            elif network_command == "telnet":
                 method = self._agent.validate_telnet_connection
-            elif path == "/api/v1/test/network/dns":
+            elif network_command == "dns":
                 method = self._agent.perform_dns_lookup
                 include_timeout = False
             else:
