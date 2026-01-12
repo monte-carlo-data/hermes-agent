@@ -97,7 +97,7 @@ class OnPremService(BaseEgressAgentService):
             if not isinstance(operation, dict):
                 raise ValueError(f"Invalid operation: {operation}")
 
-            network_command = path.lstrip(_NETWORK_PATH_PREFIX)
+            network_command = path.removeprefix(_NETWORK_PATH_PREFIX)
             if network_command == "outbound_ip_address":
                 response = self._agent.get_outbound_ip_address()
                 self._schedule_push_results(operation_id, response.result)
