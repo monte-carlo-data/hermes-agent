@@ -8,7 +8,7 @@ agent-base @ git+https://github.com/monte-carlo-data/agent-base.git@v0.0.1
     # via
     #   agent-common
     #   mcd-agent
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@dev
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.0.3
     # via -r requirements.in
 asn1crypto==1.5.1
     # via
@@ -199,7 +199,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.26.1
     # via dataclasses-json
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@dev
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.4
     # via -r requirements.in
 more-itertools==10.8.0
     # via simple-salesforce
