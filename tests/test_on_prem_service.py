@@ -38,3 +38,27 @@ class OnPremServiceTests(TestCase):
         open_connection_mock.assert_called_once_with(
             host="localhost", port_str="8081", trace_id="1234", timeout_str="10"
         )
+
+    @patch("hermes.agent.service.on_prem_service.Agent.validate_http_connection")
+    def test_network_http(self, http_connection_mock):
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="5678",
+                event={
+                    "path": "/api/v1/test/network/http",
+                    "operation": {
+                        "url": "https://example.com",
+                        "include_response": "true",
+                        "timeout": "30",
+                        "trace_id": "5678",
+                    },
+                    "credentials": {},
+                },
+            )
+        )
+        http_connection_mock.assert_called_once_with(
+            url="https://example.com",
+            include_response_str="true",
+            timeout_str="30",
+            trace_id="5678",
+        )
