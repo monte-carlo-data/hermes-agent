@@ -103,21 +103,22 @@ class OnPremService(BaseEgressAgentService):
                 self._schedule_push_results(operation_id, response.result)
                 return
 
-            include_timeout = True
-            if network_command == "open":
-                method = self._agent.validate_tcp_open_connection
-            elif network_command == "http":
-                method = self._agent.validate_http_connection
-            elif network_command == "telnet":
-                method = self._agent.validate_telnet_connection
-            elif network_command == "dns":
-                method = self._agent.perform_dns_lookup
-                include_timeout = False
+            if network_command == "http":
+                response, _ = self._execute_http_connection_test(operation)
             else:
-                raise ValueError(f"Invalid path: {path}")
-            response, _ = self._execute_network_validation(
-                method, operation, include_timeout
-            )
+                include_timeout = True
+                if network_command == "open":
+                    method = self._agent.validate_tcp_open_connection
+                elif network_command == "telnet":
+                    method = self._agent.validate_telnet_connection
+                elif network_command == "dns":
+                    method = self._agent.perform_dns_lookup
+                    include_timeout = False
+                else:
+                    raise ValueError(f"Invalid path: {path}")
+                response, _ = self._execute_network_validation(
+                    method, operation, include_timeout
+                )
             self._schedule_push_results(operation_id, response)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
@@ -134,6 +135,18 @@ class OnPremService(BaseEgressAgentService):
         if include_timeout:
             args["timeout_str"] = operation.get("timeout")
         response = method(**args)
+        return response.result, response.status_code
+
+    def _execute_http_connection_test(
+        self,
+        operation: Dict[str, Any],
+    ) -> Tuple[Dict, int]:
+        response = self._agent.validate_http_connection(
+            url=operation.get("url"),
+            include_response_str=operation.get("include_response"),
+            timeout_str=operation.get("timeout"),
+            trace_id=operation.get("trace_id"),
+        )
         return response.result, response.status_code
 
     def _get_version(self) -> str:
