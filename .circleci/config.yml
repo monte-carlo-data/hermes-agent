@@ -65,7 +65,8 @@ commands:
       cluster_name:
         type: string
     steps:
-      - helm/install_helm_client
+      - helm/install_helm_client:
+          version: 3.19.5
       - install_yq
       - run:
           name: Update version in values file
@@ -149,7 +150,8 @@ jobs:
       code_version:
         type: string
     steps:
-      - helm/install_helm_client
+      - helm/install_helm_client:
+          version: 3.19.5
       - docker/check:
           use-docker-credentials-store: true
       - install_yq
