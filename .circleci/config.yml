@@ -6,6 +6,11 @@ orbs:
   docker: circleci/docker@2.2.0
   helm: circleci/helm@3.2.0
 
+defaults:
+  - &install_helm_client
+    helm/install_helm_client:
+      version: 3.19.5
+
 commands:
   verify-version-in-docker-image:
     parameters:
@@ -65,8 +70,7 @@ commands:
       cluster_name:
         type: string
     steps:
-      - helm/install_helm_client:
-          version: 3.19.5
+      - *install_helm_client
       - install_yq
       - run:
           name: Update version in values file
@@ -150,8 +154,7 @@ jobs:
       code_version:
         type: string
     steps:
-      - helm/install_helm_client:
-          version: 3.19.5
+      - *install_helm_client
       - docker/check:
           use-docker-credentials-store: true
       - install_yq
