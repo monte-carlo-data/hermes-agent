@@ -3,8 +3,9 @@ kind: Service
 metadata:
   name: mcd-agent-loadbalancer-service
   namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+  {{- if .Values.service.annotations }}
+  annotations: {{ .Values.service.annotations | toYaml | nindent 4 }}
+  {{- end }}
 spec:
   type: LoadBalancer
   selector:
