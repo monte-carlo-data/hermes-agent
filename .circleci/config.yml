@@ -4,6 +4,7 @@ orbs:
   aws-cli: circleci/aws-cli@5.3.2
   azure-cli: circleci/azure-cli@1.2.2
   docker: circleci/docker@2.2.0
+  gcp-cli: circleci/gcp-cli@3.3.2
   helm: circleci/helm@3.2.0
 
 defaults:
@@ -91,6 +92,16 @@ commands:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
+  gcp_cli_setup:
+    steps:
+      - gcp-cli/install
+      - run:
+          name: GCP Auth
+          command: |
+            gcloud auth login --brief --cred-file=environments/dev/gcp/gcp_creds_mc_sandbox.json
+            echo "export GOOGLE_APPLICATION_CREDENTIALS=environments/dev/gcp/gcp_creds_mc_sandbox.json" >> $BASH_ENV
+            source $BASH_ENV
+            gcloud config get-value account
 jobs:
   run-linter:
     docker:
@@ -247,6 +258,25 @@ jobs:
           code_version: << parameters.code_version >>
           values_file: << parameters.values_file >>
           cluster_name: << parameters.cluster_name >>
+  update-kubernetes-gcp-cluster:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository_chart:
+        type: string
+      docker_hub_repository_image:
+        type: string
+      code_version:
+        type: string
+      values_file:
+        type: string
+      resource_group:
+        type: string
+      cluster_name:
+        type: string
+    steps:
+      - checkout
+      - gcp_cli_setup
 workflows:
   version: 2
 
@@ -344,3 +374,17 @@ workflows:
             - az-sandbox
           requires:
             - build-and-push-helm-chart-dev
+      - update-kubernetes-gcp-cluster:
+          name: update-kubernetes-gcp-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          cluster_name: mcd-agent-cluster
+          values_file: ./environments/dev/values_gke.yaml
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+#          requires:
+#            - build-and-push-helm-chart-dev
