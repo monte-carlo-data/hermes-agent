@@ -98,8 +98,8 @@ commands:
       - run:
           name: GCP Auth
           command: |
-            gcloud auth login --brief --cred-file=environments/dev/gcp/gcp_creds_mc_sandbox.json
-            echo "export GOOGLE_APPLICATION_CREDENTIALS=environments/dev/gcp/gcp_creds_mc_sandbox.json" >> $BASH_ENV
+            gcloud auth login --brief --cred-file=environments/dev/gcp/gcp_creds_config_mc_sandbox.json
+            echo "export GOOGLE_APPLICATION_CREDENTIALS=environments/dev/gcp/gcp_creds_config_mc_sandbox.json" >> $BASH_ENV
             source $BASH_ENV
             gcloud config get-value account
 jobs:
