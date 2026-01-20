@@ -101,10 +101,15 @@ commands:
       - run:
           name: GCP Auth
           command: |
+            if [ -z "$CIRCLE_OIDC_TOKEN" ]; then
+              echo "OIDC token not found, ensure this job has a context to populate OIDC token"
+              exit 1
+            fi
+            echo "$CIRCLE_OIDC_TOKEN" > CIRCLE_OIDC_TOKEN_FILE
             gcloud auth login --brief --cred-file=<< parameters.gcp_creds_config_file >>
             echo "export GOOGLE_APPLICATION_CREDENTIALS=<< parameters.gcp_creds_config_file >>" >> $BASH_ENV
             source $BASH_ENV
-            gcloud config get-value account
+            gcloud container clusters list
 jobs:
   run-linter:
     docker:
