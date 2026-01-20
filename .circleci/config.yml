@@ -111,8 +111,15 @@ commands:
             gcloud auth login --brief --cred-file=<< parameters.gcp_creds_config_file >>
             echo "export GOOGLE_APPLICATION_CREDENTIALS=<< parameters.gcp_creds_config_file >>" >> $BASH_ENV
             source $BASH_ENV
+            echo "Setting GCP project"
             gcloud config set project << parameters.gcp_project >>
+            echo "Getting GKE clusters"
             gcloud container clusters list
+      - run:
+          name: Install Kubernetes Plugins
+          command: |
+            gcloud components install kubectl
+            gcloud components install gke-gcloud-auth-plugin
 jobs:
   run-linter:
     docker:
