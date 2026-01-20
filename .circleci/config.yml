@@ -113,7 +113,7 @@ commands:
             source $BASH_ENV
             echo "Setting GCP project"
             gcloud config set project << parameters.gcp_project >>
-            echo "Getting GKE clusters"
+            echo "Getting GKE clusters" # to test the authentication
             gcloud container clusters list
       - run:
           name: Install Kubernetes Plugins
@@ -305,6 +305,12 @@ jobs:
           name: Configure GKE Cluster
           command: |
             gcloud container clusters get-credentials << parameters.cluster_name >> --region << parameters.region >>
+      - update_helm_chart:
+          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
+          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
+          code_version: << parameters.code_version >>
+          values_file: << parameters.values_file >>
+          cluster_name: << parameters.cluster_name >>
 workflows:
   version: 2
 
@@ -417,5 +423,5 @@ workflows:
             - generate-version-number-dev
           context:
             - docker
-#          requires:
-#            - build-and-push-helm-chart-dev
+          requires:
+            - build-and-push-helm-chart-dev
