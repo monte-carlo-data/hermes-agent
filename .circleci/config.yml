@@ -403,6 +403,7 @@ workflows:
           region: us-central1
           values_file: ./environments/dev/values_gke.yaml
           gcp_creds_config_file: ./environments/dev/gcp/gcp_creds_config_mc_sandbox.json
+          gcp_project: REDACTED_GCP_PROJECT
           code_version: ${NEXT_VERSION}
           pre-steps:
             - checkout
