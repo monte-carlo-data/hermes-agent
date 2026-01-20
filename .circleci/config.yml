@@ -96,6 +96,8 @@ commands:
     parameters:
       gcp_creds_config_file:
         type: string
+      gcp_project:
+        type: string
     steps:
       - gcp-cli/install
       - run:
@@ -109,6 +111,7 @@ commands:
             gcloud auth login --brief --cred-file=<< parameters.gcp_creds_config_file >>
             echo "export GOOGLE_APPLICATION_CREDENTIALS=<< parameters.gcp_creds_config_file >>" >> $BASH_ENV
             source $BASH_ENV
+            gcloud config set project << parameters.gcp_project >>
             gcloud container clusters list
 jobs:
   run-linter:
@@ -284,10 +287,13 @@ jobs:
         type: string
       gcp_creds_config_file:
         type: string
+      gcp_project:
+        type: string
     steps:
       - checkout
       - gcp_cli_setup:
           gcp_creds_config_file: << parameters.gcp_creds_config_file >>
+          gcp_project: << parameters.gcp_project >>
       - run:
           name: Configure GKE Cluster
           command: |
