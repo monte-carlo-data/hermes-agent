@@ -1,6 +1,7 @@
 version: 2.1
 
 orbs:
+  aws-cli: circleci/aws-cli@5.3.2
   docker: circleci/docker@2.2.0
   helm: circleci/helm@3.2.0
 
@@ -40,6 +41,16 @@ commands:
           echo "VERSION_TAG=${TAG#v}" >> $BASH_ENV
           source $BASH_ENV
         name: Generate prod version number
+  install_yq:
+    steps:
+    - run:
+        name: Install yq
+        command: |
+          VERSION=v4.50.1
+          PLATFORM=linux_amd64
+
+          wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
+          sudo mv yq_${PLATFORM} /usr/local/bin/yq
 
 jobs:
   run-linter:
@@ -88,13 +99,98 @@ jobs:
           use-buildkit: true  # to build only the required stages
           extra_build_args: --target hermes-generic --build-arg code_version=<< parameters.code_version >> --build-arg build_number=<< pipeline.number >>
           image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-hermes,<< parameters.code_version >>-hermes
+          tag: latest-generic,<< parameters.code_version >>-generic
       - verify-version-in-docker-image:
-          image: montecarlodata/<< parameters.docker_hub_repository >>:latest-hermes
+          image: montecarlodata/<< parameters.docker_hub_repository >>:latest-generic
           version: << parameters.code_version >>,<< pipeline.number >>
       - docker/push:
           image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-hermes,<< parameters.code_version >>-hermes
+          tag: latest-generic,<< parameters.code_version >>-generic
+  build-and-push-helm-chart:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository:
+        type: string
+      code_version:
+        type: string
+    steps:
+      - helm/install_helm_client
+      - docker/check:
+          use-docker-credentials-store: true
+      - install_yq
+      - run:
+          name: Update version and repo
+          command: |
+            echo repo: << parameters.docker_hub_repository >>
+            echo version: << parameters.code_version >>
+            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
+            export VERSION=<< parameters.code_version >>
+            # helm requires version to be semantic version compatible, so 0.0.1rc10 needs to be 0.0.1-rc10
+            export CHART_VERSION="$(echo $VERSION | sed 's/rc/-rc/')"
+            yq eval '.version = strenv(CHART_VERSION)' -i helm/Chart.yaml
+            yq eval '.appVersion = strenv(VERSION)' -i helm/Chart.yaml
+            yq eval '.name = "<< parameters.docker_hub_repository >>"' -i helm/Chart.yaml
+            echo
+            echo helm/Chart.yaml:
+            cat helm/Chart.yaml
+      - run:
+          name: Package Helm Chart
+          command: |
+            helm package helm
+      - run:
+          name: Push Helm Chart
+          command: |
+            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+            helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
+  update-kubernetes-cluster:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository_chart:
+        type: string
+      docker_hub_repository_image:
+        type: string
+      code_version:
+        type: string
+      cluster_name:
+        type: string
+      values_file:
+        type: string
+      aws_region:
+        type: string
+      aws_role_arn:
+        type: string
+    steps:
+      - aws-cli/setup:
+          role_arn: << parameters.aws_role_arn >>
+      - helm/install_helm_client
+      - docker/check:
+          use-docker-credentials-store: true
+      - install_yq
+      - run:
+          name: Update version in values file
+          command: |
+            echo repo: << parameters.docker_hub_repository_image >>
+            echo version: << parameters.code_version >>
+            echo values file: << parameters.values_file >>
+            echo
+            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
+            export VERSION=<< parameters.code_version >>
+            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
+            yq eval '.image.tag = (strenv(VERSION) + "-generic")' -i << parameters.values_file >>
+            echo
+            echo << parameters.values_file >>:
+            cat << parameters.values_file >>
+      - run:
+          name: Configure EKS Cluster Access
+          command: |
+            aws eks --region << parameters.aws_region >> update-kubeconfig --name << parameters.cluster_name >>
+      - run:
+          name: Upgrade Kubernetes Cluster with Helm
+          command: |
+            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+            helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
 
 workflows:
   version: 2
@@ -123,7 +219,6 @@ workflows:
             branches:
               only:
                 - dev
-                - /.*\/pr-.*/
       - build-and-push:
           name: build-and-push-prod
           docker_hub_repository: agent
@@ -141,3 +236,41 @@ workflows:
               only: /^v.*/
             branches:
               ignore: /.*/
+      - build-and-push-helm-chart:
+          name: build-and-push-helm-chart-dev
+          docker_hub_repository: pre-release-generic-agent-helm
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+          requires:
+            - build-and-push-dev
+      - update-kubernetes-cluster:
+          name: update-kubernetes-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          cluster_name: hermes-agent-dev
+          values_file: ./environments/dev/values_aws.yaml
+          code_version: ${NEXT_VERSION}
+          aws_region: us-west-2
+          aws_role_arn: arn:aws:iam::REDACTED_AWS_ACCOUNT_ID:role/mc-circleci
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+          requires:
+            - build-and-push-helm-chart-dev
+      - build-and-push-helm-chart:
+          name: build-and-push-helm-chart-prod
+          docker_hub_repository: generic-agent-helm
+          code_version: ${VERSION_TAG}
+          pre-steps:
+            - checkout
+            - generate-version-number-prod
+          context:
+            - docker
+          requires:
+            - build-and-push-prod
