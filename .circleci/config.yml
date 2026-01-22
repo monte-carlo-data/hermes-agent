@@ -2,8 +2,14 @@ version: 2.1
 
 orbs:
   aws-cli: circleci/aws-cli@5.3.2
+  azure-cli: circleci/azure-cli@1.2.2
   docker: circleci/docker@2.2.0
   helm: circleci/helm@3.2.0
+
+defaults:
+  - &install_helm_client
+    helm/install_helm_client:
+      version: 3.19.5
 
 commands:
   verify-version-in-docker-image:
@@ -51,7 +57,40 @@ commands:
 
           wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
           sudo mv yq_${PLATFORM} /usr/local/bin/yq
-
+  update_helm_chart:
+    parameters:
+      docker_hub_repository_image:
+        type: string
+      docker_hub_repository_chart:
+        type: string
+      code_version:
+        type: string
+      values_file:
+        type: string
+      cluster_name:
+        type: string
+    steps:
+      - *install_helm_client
+      - install_yq
+      - run:
+          name: Update version in values file
+          command: |
+            echo repo: << parameters.docker_hub_repository_image >>
+            echo version: << parameters.code_version >>
+            echo values file: << parameters.values_file >>
+            echo
+            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
+            export VERSION=<< parameters.code_version >>
+            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
+            yq eval '.image.tag = (strenv(VERSION) + "-generic")' -i << parameters.values_file >>
+            echo
+            echo << parameters.values_file >>:
+            cat << parameters.values_file >>
+      - run:
+          name: Upgrade Kubernetes Cluster with Helm
+          command: |
+            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
+            helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
 jobs:
   run-linter:
     docker:
@@ -115,7 +154,7 @@ jobs:
       code_version:
         type: string
     steps:
-      - helm/install_helm_client
+      - *install_helm_client
       - docker/check:
           use-docker-credentials-store: true
       - install_yq
@@ -143,7 +182,7 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
-  update-kubernetes-cluster:
+  update-kubernetes-aws-cluster:
     machine:
       image: ubuntu-2204:current
     parameters:
@@ -164,34 +203,50 @@ jobs:
     steps:
       - aws-cli/setup:
           role_arn: << parameters.aws_role_arn >>
-      - helm/install_helm_client
-      - docker/check:
-          use-docker-credentials-store: true
-      - install_yq
-      - run:
-          name: Update version in values file
-          command: |
-            echo repo: << parameters.docker_hub_repository_image >>
-            echo version: << parameters.code_version >>
-            echo values file: << parameters.values_file >>
-            echo
-            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
-            export VERSION=<< parameters.code_version >>
-            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
-            yq eval '.image.tag = (strenv(VERSION) + "-generic")' -i << parameters.values_file >>
-            echo
-            echo << parameters.values_file >>:
-            cat << parameters.values_file >>
       - run:
           name: Configure EKS Cluster Access
           command: |
             aws eks --region << parameters.aws_region >> update-kubeconfig --name << parameters.cluster_name >>
+      - update_helm_chart:
+          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
+          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
+          code_version: << parameters.code_version >>
+          values_file: << parameters.values_file >>
+          cluster_name: << parameters.cluster_name >>
+  update-kubernetes-azure-cluster:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository_chart:
+        type: string
+      docker_hub_repository_image:
+        type: string
+      code_version:
+        type: string
+      values_file:
+        type: string
+      resource_group:
+        type: string
+      cluster_name:
+        type: string
+    steps:
+      - checkout
+      - azure-cli/install
       - run:
-          name: Upgrade Kubernetes Cluster with Helm
+          name: Azure login
           command: |
-            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
-            helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
-
+            az login --service-principal --user "${AZURE_CLIENT_ID}" --tenant "${AZURE_TENANT_ID}" --federated-token "${CIRCLE_OIDC_TOKEN}"
+      - run: az account show
+      - run:
+          name: Configure AKS Cluster
+          command: |
+            az aks get-credentials --resource-group << parameters.resource_group >> --name << parameters.cluster_name >>
+      - update_helm_chart:
+          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
+          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
+          code_version: << parameters.code_version >>
+          values_file: << parameters.values_file >>
+          cluster_name: << parameters.cluster_name >>
 workflows:
   version: 2
 
@@ -247,8 +302,8 @@ workflows:
             - docker
           requires:
             - build-and-push-dev
-      - update-kubernetes-cluster:
-          name: update-kubernetes-cluster-dev
+      - update-kubernetes-aws-cluster:
+          name: update-kubernetes-aws-cluster-dev
           docker_hub_repository_chart: pre-release-generic-agent-helm
           docker_hub_repository_image: pre-release-agent
           cluster_name: hermes-agent-dev
@@ -274,3 +329,18 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
+      - update-kubernetes-azure-cluster:
+          name: update-kubernetes-azure-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          values_file: ./environments/dev/values_az.yaml
+          code_version: ${NEXT_VERSION}
+          resource_group: agent-aks-test
+          cluster_name: hermes-agent-dev
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - az-sandbox
+          requires:
+            - build-and-push-helm-chart-dev
