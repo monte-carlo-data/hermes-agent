@@ -1,0 +1,35 @@
+# Values for local development using kind
+# PostgreSQL running via docker-compose on the host machine
+namespace: mcd-agent
+replicaCount: 1
+
+image:
+  repository: hermes-agent
+  pullPolicy: Never # Use locally built image loaded into kind
+  tag: "local"
+
+container:
+  port: 8080
+  backendServiceUrl: https://artemis.dev.getmontecarlo.com
+  gunicornWorkers: 1
+  gunicornThreads: 1
+  storageBucketName: "local-storage"
+  storageType: "S3_COMPATIBLE"
+  storageEndpointUrl: "http://host.docker.internal:9000"
+  storageAccessKey: "minioadmin"
+  storageSecretKey: "minioadmin"
+  opsRunnerThreadCount: "2"
+  publisherThreadCount: "1"
+
+service:
+  port: 8080
+
+# Skip External Secrets Operator resources for local development.
+# Kubernetes Secrets are created manually via kubectl instead.
+skipExternalSecrets: true
+
+# Override nodeSelector for Apple Silicon (arm64) Macs.
+# Comment this out or change to amd64 if running on an Intel Mac.
+nodeSelector:
+  kubernetes.io/os: linux
+  kubernetes.io/arch: arm64

@@ -16,7 +16,7 @@ WORKDIR $APP_HOME
 RUN rm -rf ./apollo
 
 COPY requirements.txt ./
-RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
+RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir --force-reinstall -r requirements.txt
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY hermes/ ./hermes
@@ -40,5 +40,4 @@ FROM base AS hermes-generic
 
 WORKDIR $APP_HOME
 
-CMD . $VENV_DIR/bin/activate \
-    && gunicorn --bind :$PORT --workers $GUNICORN_WORKERS --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT hermes.agent.main:app
+CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && gunicorn --bind :$PORT --workers $GUNICORN_WORKERS --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT hermes.agent.main:app"]
