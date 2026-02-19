@@ -40,6 +40,4 @@ FROM base AS hermes-generic
 
 WORKDIR $APP_HOME
 
-# CMD . $VENV_DIR/bin/activate \
-#     && gunicorn --bind :$PORT --workers $GUNICORN_WORKERS --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT hermes.agent.main:app
 CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && gunicorn --bind :$PORT --workers $GUNICORN_WORKERS --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT hermes.agent.main:app"]
