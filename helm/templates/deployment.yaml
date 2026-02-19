@@ -46,6 +46,18 @@ spec:
               value: {{ .Values.container.publisherThreadCount | default "2" | int | quote }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
+            {{- if .Values.container.storageEndpointUrl }}
+            - name: MCD_STORAGE_ENDPOINT_URL
+              value: {{ .Values.container.storageEndpointUrl | quote }}
+            {{- end }}
+            {{- if .Values.container.storageAccessKey }}
+            - name: MCD_STORAGE_ACCESS_KEY
+              value: {{ .Values.container.storageAccessKey | quote }}
+            {{- end }}
+            {{- if .Values.container.storageSecretKey }}
+            - name: MCD_STORAGE_SECRET_KEY
+              value: {{ .Values.container.storageSecretKey | quote }}
+            {{- end }}
             {{- if .Values.container.storageAccountName }}
             - name: MCD_STORAGE_ACCOUNT_NAME
               value: {{ .Values.container.storageAccountName | quote }}
@@ -64,6 +76,10 @@ spec:
         - name: mcd-integrations-secrets
           secret:
             secretName: mcd-integrations-secrets
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
+      {{- else }}
       nodeSelector:
         kubernetes.io/os: linux
         kubernetes.io/arch: amd64
+      {{- end }}

@@ -1,3 +1,232 @@
 # Hermes Agent - Generic Egress-only Agent
 
 This project is a generic egress-only agent that can be executed in any on-prem or cloud environment (through Kubernetes or similar tools).
+
+## Running the Agent Locally with Kubernetes
+
+This section explains how to run the agent locally inside a [kind](https://kind.sigs.k8s.io/) Kubernetes cluster, pointing to a local PostgreSQL database running in Docker, and using MinIO (inside docker) as S3 compatible storage.
+
+### Prerequisites
+
+Follow this [document](REDACTED_INTERNAL_DOC_URL to create an agent and integration key on MCD.
+
+
+| Tool | Install |
+|------|---------|
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Required for containers and kind |
+| [kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) | `brew install kind` |
+| [kubectl](https://kubernetes.io/docs/tasks/tools/) | `brew install kubectl` |
+| [Helm](https://helm.sh/docs/intro/install/) | `brew install helm` |
+
+### Step 1 — Start local services (PostgreSQL + MinIO)
+
+A `docker-compose.yaml` in the project root spins up PostgreSQL 16 and [MinIO](https://min.io/) (S3-compatible object storage):
+
+```bash
+docker compose up -d
+```
+
+This creates:
+
+**PostgreSQL:**
+- **Host (from inside kind):** `host.docker.internal`
+- **Port:** `5432`
+- **Database / User / Password:** `hermes`
+
+**MinIO (S3-compatible storage):**
+- **API endpoint (from inside kind):** `http://host.docker.internal:9000`
+- **Web console:** `http://localhost:9001`
+- **Root user / password:** `minioadmin`
+
+Verify both are running:
+
+```bash
+docker compose ps
+```
+
+#### Create the MinIO storage bucket
+
+Open the MinIO console at [http://localhost:9001](http://localhost:9001), log in with `minioadmin` / `minioadmin`, and create a bucket named `local-storage` (matching `storageBucketName` in `values.yaml`).
+
+Alternatively, use the MinIO client:
+
+```bash
+# Install mc (MinIO Client)
+brew install minio/stable/mc
+
+# Configure the local alias
+mc alias set local http://localhost:9000 minioadmin minioadmin
+
+# Create the bucket
+mc mb local/local-storage
+```
+
+### Step 2 — Create the kind cluster
+
+```bash
+kind create cluster --name hermes-local --image kindest/node:v1.32.2
+```
+
+Confirm the cluster is ready:
+
+```bash
+kubectl cluster-info --context kind-hermes-local
+```
+Kubernetes control plane is running at https://127.0.0.1:58375
+CoreDNS is running at https://127.0.0.1:58375/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+
+### Step 3 — Build the Docker image
+
+```bash
+docker build --pull --no-cache --target hermes-generic -t hermes-agent:local .
+```
+
+When developing, you can point to a local repo (e.g. `agent-common`) to test your changes. 
+Update the Dockerfile to remove pre-installed packages from the base image so your local versions take precedence, then copies the local `code` source via `--build-context`:
+
+Update your Dockerfile with
+```
+# delete the source code and pre-installed packages from the base image,
+# so our requirements.txt versions take precedence
+RUN rm -rf ./apollo && \
+    . $VENV_DIR/bin/activate && pip uninstall -y apollo-agent agent-base 2>/dev/null; true
+
+# Copy local agent-common for editable install.
+# Pass via: --build-context agent-common=../agent-common
+COPY --from=agent-common . /agent-common
+```
+
+Rebuild your docker image
+```bash
+docker build --pull --no-cache --target hermes-generic -t hermes-agent:local \
+  --build-context agent-common=../agent-common .
+```
+
+### Step 4 — Load the image into kind
+
+kind runs its own container registry. You must load your local image so the cluster can pull it:
+
+```bash
+kind load docker-image hermes-agent:local --name hermes-local
+```
+
+### Step 5 — Deploy with Helm
+
+This creates the namespace, service account, deployment, and service. The pod will initially fail because the secrets don't exist yet — that's expected.
+
+```bash
+# if you need to delete the namespace
+kubectl delete namespace mcd-agent
+
+helm upgrade --install hermes-agent ./helm \
+  -f environments/local/values.yaml \
+  --namespace mcd-agent \
+  --create-namespace
+```
+
+### Step 6 — Create Kubernetes Secrets
+
+The Helm chart expects two Kubernetes Secrets that are normally provisioned by the External Secrets Operator in cloud environments. For local development, create them manually in the namespace that Helm just created.
+
+#### 6a — Create the agent token secret
+
+You need a valid MCD agent token JSON. If you have one, create the secret from it. Otherwise, use a placeholder for basic startup testing:
+
+```bash
+# Option A: from a real token file
+kubectl create secret generic mcd-agent-token-secret \
+  --namespace mcd-agent \
+  --from-file=contents.json=<path-to-your-token-file>
+
+# Option B: placeholder (agent will start but cannot communicate with orchestrator)
+kubectl create secret generic mcd-agent-token-secret \
+  --namespace mcd-agent \
+  --from-literal=contents.json='{"mcd_id":"<id>","mcd_token":"<secret>"}'
+```
+
+#### 6b — Create the integrations secret
+
+For testing PostgreSQL connectivity, create a secret with the connection details. The key name (e.g. `pg_local.json`) must match the `file_path` configured in the Monte Carlo connection settings.
+
+```bash
+kubectl create secret generic mcd-integrations-secrets \
+  --namespace mcd-agent \
+  --from-literal=pg_local.json='{"connect_args": {"host":"host.docker.internal","port":5432,"database":"hermes","user":"hermes","password":"hermes"}}'
+```
+
+> **Note:** The JSON must use `connect_args` with psycopg2-compatible keys (`host`, `port`, `database`, `user`, `password`). The Monte Carlo connection must be configured with `selfHostedCredentialsType: FILE` and `filePath: /etc/secrets/integrations/pg_local.json`.
+
+
+#### 6c — Restart the deployment to pick up the new secrets
+
+```bash
+kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
+```
+
+### Step 7 — Verify the deployment
+
+```bash
+# Check the pod is running
+kubectl get pods -n mcd-agent
+
+# Watch logs
+kubectl logs -n mcd-agent -l app=mcd-agent -f
+
+# Test the health endpoint
+kubectl port-forward -n mcd-agent svc/mcd-agent-loadbalancer-service 8080:8080
+# In another terminal:
+curl http://localhost:8080/api/v1/test/health
+```
+
+### Tear down
+
+```bash
+# Stops from running
+kubectl scale deployment mcd-agent-deployment --replicas=0 -n mcd-agent
+
+
+# Remove the Helm release
+helm uninstall hermes-agent --namespace mcd-agent
+
+# Delete the kind cluster
+kind delete cluster --name hermes-local
+
+# Stop all local services
+docker compose down        # keeps data
+docker compose down -v     # removes data volumes too
+```
+
+### Useful commands
+
+```bash
+# Rebuild and redeploy after code changes
+docker build --target hermes-generic -t hermes-agent:local .
+kind load docker-image hermes-agent:local --name hermes-local
+kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
+
+# Recreate a secret (e.g. after changing values)
+kubectl delete secret mcd-agent-token-secret -n mcd-agent
+kubectl create secret generic mcd-agent-token-secret \
+  --namespace mcd-agent \
+  --from-literal=contents.json='{"mcd_id":"<your-id>","mcd_token":"<your-token>"}'
+kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
+
+# Apply Helm values changes (no rebuild needed)
+helm upgrade --install hermes-agent ./helm \
+  -f environments/local/values.yaml \
+  --namespace mcd-agent
+
+# Verify integrations secret content
+kubectl get secret mcd-integrations-secrets -n mcd-agent -o jsonpath='{.data}' \
+  | python3 -c "import sys,json,base64; d=json.load(sys.stdin); print({k: base64.b64decode(v).decode() for k,v in d.items()})"
+
+# Check file inside the pod
+kubectl exec -n mcd-agent deploy/mcd-agent-deployment -- cat /etc/secrets/integrations/pg_local.json
+```
+
+### Notes
+
+- **Apple Silicon (M1/M2/M3/M4):** The local values file sets `nodeSelector` to `arm64`. If you are on an Intel Mac, change it to `amd64` in `environments/local/values.yaml`.
+- **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
+- **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
+- **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
