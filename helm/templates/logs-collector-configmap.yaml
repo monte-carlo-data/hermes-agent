@@ -1,0 +1,74 @@
+{{- if .Values.logsCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logs-collector-config
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/*_{{ .Values.namespace | default "mcd-agent" }}_*.log
+      pos_file /fluentd/buffer/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type regexp
+        expression /^(?<time>[^ ]+) (?<stream>stdout|stderr) [^ ]+ (?<log>.*)$/
+        time_key time
+        time_format %Y-%m-%dT%H:%M:%S.%N%z
+      </parse>
+    </source>
+
+    {{- if .Values.logsCollector.logLevel }}
+    # Drop log lines that don't match the configured log level filter
+    <filter kubernetes.**>
+      @type grep
+      <regexp>
+        key log
+        pattern /{{ .Values.logsCollector.logLevel }}/i
+      </regexp>
+    </filter>
+    {{- end }}
+
+    # Rename fields to match the logs API: {"timestamp": "...", "message": "..."}
+    <filter kubernetes.**>
+      @type record_transformer
+      enable_ruby true
+      renew_record true
+      <record>
+        timestamp ${time.strftime('%Y-%m-%dT%H:%M:%S.%6N%z')}
+        message ${record["log"].to_s}
+      </record>
+    </filter>
+
+    <match kubernetes.**>
+      @type http
+      endpoint {{ .Values.logsCollector.output.endpoint }}
+      http_method post
+      content_type application/json
+
+      headers {
+        "x-mcd-id"    : "#{ENV['MCD_ID']}",
+        "x-mcd-token" : "#{ENV['MCD_TOKEN']}"
+      }
+
+      retryable_response_codes [503]
+      json_array true
+      <format>
+        @type json
+      </format>
+      <buffer>
+        @type file
+        path /fluentd/buffer/buffer
+        flush_interval {{ .Values.logsCollector.buffer.flushInterval | default "5s" }}
+        retry_max_times {{ .Values.logsCollector.buffer.retryMaxTimes | default 5 }}
+        retry_wait {{ .Values.logsCollector.buffer.retryWait | default "1s" }}
+        chunk_limit_size {{ .Values.logsCollector.buffer.chunkLimitSize | default "8MB" }}
+        total_limit_size {{ .Values.logsCollector.buffer.totalLimitSize | default "512MB" }}
+        overflow_action {{ .Values.logsCollector.buffer.overflowAction | default "block" }}
+        retry_type exponential_backoff
+        retry_max_interval {{ .Values.logsCollector.buffer.retryMaxInterval | default "30s" }}
+      </buffer>
+    </match>
+{{- end }}
