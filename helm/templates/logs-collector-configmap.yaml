@@ -20,13 +20,13 @@ data:
       </parse>
     </source>
 
-    {{- if .Values.logsCollector.logLevel }}
+    {{- if .Values.logsCollector.logLevel | default "WARN|WARNING|ERROR|CRITICAL" }}
     # Drop log lines that don't match the configured log level filter
     <filter kubernetes.**>
       @type grep
       <regexp>
         key log
-        pattern /{{ .Values.logsCollector.logLevel }}/i
+        pattern /{{ .Values.logsCollector.logLevel | default "WARN|WARNING|ERROR|CRITICAL" }}/i
       </regexp>
     </filter>
     {{- end }}
@@ -61,7 +61,7 @@ data:
       <buffer>
         @type file
         path /fluentd/buffer/buffer
-        flush_interval {{ .Values.logsCollector.buffer.flushInterval | default "5s" }}
+        flush_interval {{ .Values.logsCollector.buffer.flushInterval | default "5m" }}
         retry_max_times {{ .Values.logsCollector.buffer.retryMaxTimes | default 5 }}
         retry_wait {{ .Values.logsCollector.buffer.retryWait | default "1s" }}
         chunk_limit_size {{ .Values.logsCollector.buffer.chunkLimitSize | default "8MB" }}

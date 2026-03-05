@@ -194,6 +194,22 @@ The Helm chart deploys an optional **DaemonSets** that run on every node in the 
 | **Endpoint** | `logsCollector.output.endpoint` → `POST /api/v1/agent/logs` |
 | **Buffer settings** | Configurable chunk size (`8MB`), total limit (`512MB`), retry with exponential backoff (up to `30s`). See `logsCollector.buffer.*` in `values.yaml`. |
 
+##### Configuration defaults
+
+All properties below have defaults in the Helm templates and can be omitted from `values.yaml` unless you need to override them.
+
+| Property | Default |
+|---|---|
+| `logsCollector.logLevel` | `"WARN\|WARNING\|ERROR\|CRITICAL"` |
+| `logsCollector.image.repository` | `"fluent/fluentd"` |
+| `logsCollector.image.tag` | `"v1.18-1"` |
+| `logsCollector.buffer.flushInterval` | `"5m"` |
+| `logsCollector.buffer.retryMaxTimes` | `5` |
+| `logsCollector.buffer.retryWait` | `"1s"` |
+| `logsCollector.buffer.chunkLimitSize` | `"8MB"` |
+| `logsCollector.buffer.totalLimitSize` | `"512MB"` |
+| `logsCollector.buffer.overflowAction` | `"block"` |
+| `logsCollector.buffer.retryMaxInterval` | `"30s"` |
 
 
 #### Checking DaemonSet logs
