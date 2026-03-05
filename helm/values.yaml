@@ -1,0 +1,19 @@
+# Default values for hermes-agent helm chart.
+# Environment-specific values files override these defaults.
+
+logsCollector:
+  enabled: false
+  logLevel: "WARN|WARNING|ERROR|CRITICAL"
+  image:
+    repository: fluent/fluentd
+    tag: "v1.18-1"
+  output:
+    endpoint: ""
+  buffer:
+    flushInterval: "5m"
+    retryMaxTimes: 5
+    retryWait: "1s"
+    chunkLimitSize: "8MB"
+    totalLimitSize: "512MB"
+    overflowAction: "block"
+    retryMaxInterval: "30s"
