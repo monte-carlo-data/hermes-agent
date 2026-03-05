@@ -21,6 +21,13 @@ container:
   opsRunnerThreadCount: "2"
   publisherThreadCount: "1"
 
+# logs-collector sidecar for log collection
+logsCollector:
+  enabled: true
+  output:
+    # For local testing, send logs to the orchestrator running on the host
+    endpoint: "https://artemis.dev.getmontecarlo.com/api/v1/agent/logs"
+
 service:
   port: 8080
 
