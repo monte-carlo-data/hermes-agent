@@ -21,7 +21,7 @@ attrs==25.4.0
     #   zeep
 azure-common==1.1.28
     # via azure-mgmt-storage
-azure-core==1.36.0
+azure-core==1.38.0
     # via
     #   azure-identity
     #   azure-keyvault-secrets
