@@ -1,0 +1,72 @@
+{{- if .Values.logsCollector.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: logs-collector
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+  labels:
+    app: logs-collector
+spec:
+  selector:
+    matchLabels:
+      app: logs-collector
+  template:
+    metadata:
+      labels:
+        app: logs-collector
+    spec:
+      serviceAccountName: mcd-agent-service-account
+      containers:
+        - name: logs-collector
+          image: "{{ .Values.logsCollector.image.repository | default "fluent/fluentd" }}:{{ .Values.logsCollector.image.tag | default "v1.18-1" }}"
+          securityContext:
+            runAsUser: 0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ "$LOGGING_ENABLED" = "false" ]; then
+                echo "Logging disabled. Exiting."
+                sleep infinity
+              else
+                # Extract credentials from JSON secret and export as env vars.
+                # Fluentd v1.18+ natively interpolates #{ENV['...']} in headers.
+                export MCD_ID=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_id']")
+                export MCD_TOKEN=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_token']")
+                exec fluentd -c /fluentd/etc/fluent.conf
+              fi
+          env:
+            - name: LOGGING_ENABLED
+              value: {{ .Values.logsCollector.enabled | quote }}
+          volumeMounts:
+            - name: logs-collector-config
+              mountPath: /fluentd/etc
+              readOnly: true
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: logs-collector-buffer
+              mountPath: /fluentd/buffer
+            - name: mcd-agent-token-secret
+              mountPath: /etc/secrets/mcd-agent-token
+              readOnly: true
+      volumes:
+        - name: logs-collector-config
+          configMap:
+            name: logs-collector-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: logs-collector-buffer
+          emptyDir: {}
+        - name: mcd-agent-token-secret
+          secret:
+            secretName: mcd-agent-token-secret
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
+      {{- else }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
+      {{- end }}
+{{- end }}

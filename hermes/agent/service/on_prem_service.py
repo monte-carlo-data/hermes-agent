@@ -15,7 +15,6 @@ from apollo.egress.agent.service.file_login_token_provider import FileLoginToken
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
-from hermes.agent.service.logs_service import LogsService
 from hermes.agent.service.metrics_service import MetricsService
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
@@ -48,7 +47,8 @@ class OnPremService(BaseEgressAgentService):
             platform="Generic",
             service_name="Generic Agent",
             config_manager=config_manager,
-            logs_service=LogsService(),
+            skip_logs=True,
+            logs_service=None,
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
