@@ -4,6 +4,7 @@ orbs:
   aws-cli: circleci/aws-cli@5.3.2
   azure-cli: circleci/azure-cli@1.2.2
   docker: circleci/docker@2.2.0
+  gcp-cli: circleci/gcp-cli@3.3.2
   helm: circleci/helm@3.2.0
 
 defaults:
@@ -91,6 +92,34 @@ commands:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
+  gcp_cli_setup:
+    parameters:
+      gcp_creds_config_file:
+        type: string
+      gcp_project:
+        type: string
+    steps:
+      - gcp-cli/install
+      - run:
+          name: GCP Auth
+          command: |
+            if [ -z "$CIRCLE_OIDC_TOKEN" ]; then
+              echo "OIDC token not found, ensure this job has a context to populate OIDC token"
+              exit 1
+            fi
+            echo "$CIRCLE_OIDC_TOKEN" > CIRCLE_OIDC_TOKEN_FILE
+            gcloud auth login --brief --cred-file=<< parameters.gcp_creds_config_file >>
+            echo "export GOOGLE_APPLICATION_CREDENTIALS=<< parameters.gcp_creds_config_file >>" >> $BASH_ENV
+            source $BASH_ENV
+            echo "Setting GCP project"
+            gcloud config set project << parameters.gcp_project >>
+            echo "Getting GKE clusters" # to test the authentication
+            gcloud container clusters list
+      - run:
+          name: Install Kubernetes Plugins
+          command: |
+            gcloud components install kubectl
+            gcloud components install gke-gcloud-auth-plugin
 jobs:
   run-linter:
     docker:
@@ -247,6 +276,43 @@ jobs:
           code_version: << parameters.code_version >>
           values_file: << parameters.values_file >>
           cluster_name: << parameters.cluster_name >>
+  update-kubernetes-gcp-cluster:
+    machine:
+      image: ubuntu-2204:current
+    parameters:
+      docker_hub_repository_chart:
+        type: string
+      docker_hub_repository_image:
+        type: string
+      code_version:
+        type: string
+      values_file:
+        type: string
+      cluster_name:
+        type: string
+      region:
+        type: string
+      gcp_creds_config_file:
+        type: string
+      gcp_project:
+        type: string
+      gke_cluster_name:
+        type: string
+    steps:
+      - checkout
+      - gcp_cli_setup:
+          gcp_creds_config_file: << parameters.gcp_creds_config_file >>
+          gcp_project: << parameters.gcp_project >>
+      - run:
+          name: Configure GKE Cluster
+          command: |
+            gcloud container clusters get-credentials << parameters.gke_cluster_name >> --region << parameters.region >>
+      - update_helm_chart:
+          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
+          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
+          code_version: << parameters.code_version >>
+          values_file: << parameters.values_file >>
+          cluster_name: << parameters.cluster_name >>
 workflows:
   version: 2
 
@@ -342,5 +408,23 @@ workflows:
             - generate-version-number-dev
           context:
             - az-sandbox
+          requires:
+            - build-and-push-helm-chart-dev
+      - update-kubernetes-gcp-cluster:
+          name: update-kubernetes-gcp-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          gke_cluster_name: mcd-agent-cluster
+          cluster_name: hermes-agent-dev
+          region: us-central1
+          values_file: ./environments/dev/values_gke.yaml
+          gcp_creds_config_file: ./environments/dev/gcp/gcp_creds_config_mc_sandbox.json
+          gcp_project: REDACTED_GCP_PROJECT
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
           requires:
             - build-and-push-helm-chart-dev
