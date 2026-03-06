@@ -187,7 +187,7 @@ The Helm chart deploys an optional **DaemonSets** that run on every node in the 
 | | |
 |---|---|
 | **Toggle** | `logsCollector.enabled: true\|false` |
-| **Image** | `fluent/fluentd:v1.16-1` (configurable via `logsCollector.image`) |
+| **Image** | `fluent/fluentd:v1.18-1` (configurable via `logsCollector.image`) |
 | **How it works** | Uses [Fluentd](https://www.fluentd.org/) to tail container log files from the host (`/var/log/containers/*_mcd-agent_*.log`). Runs as root (`runAsUser: 0`) to read host log files. Parses the CRI log format, transforms each line into `{"timestamp": "...", "message": "..."}`, and POSTs JSON arrays to the orchestrator. |
 | **Flush interval** | Every `5m` by default (`logsCollector.buffer.flushInterval`). Fluentd buffers logs to disk and flushes in batches. |
 | **Log level filter** | Optional — set `logsCollector.logLevel` to a regex (e.g. `"WARN\|ERROR\|CRITICAL"`) to only forward matching lines. Omit or leave empty to send all logs. |
@@ -212,12 +212,36 @@ All properties below have defaults in the Helm templates and can be omitted from
 | `logsCollector.buffer.retryMaxInterval` | `"30s"` |
 
 
+#### Metrics Collector (`metricsCollector`)
+
+| | |
+|---|---|
+| **Toggle** | `metricsCollector.enabled: true\|false` |
+| **Image** | `otel/opentelemetry-collector-k8s:0.147.0` (configurable via `metricsCollector.image`) |
+| **How it works** | Uses the [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) with the `kubeletstats` receiver to scrape container CPU and memory metrics from the Kubelet API. Runs as a DaemonSet with `serviceAccount` auth. An Alpine init container extracts credentials from the JSON secret into files that the collector reads via `${file:...}` syntax. |
+| **Collection interval** | Every `60s` by default (`metricsCollector.collectionIntervalSeconds`). |
+| **Metrics collected** | `container.cpu.time`, `container.cpu.usage`, `container.memory.usage`, `container.memory.rss`, `container.memory.working_set` |
+| **Endpoint** | `metricsCollector.output.endpoint` → `PUT /api/v1/agent/metrics` (OTLP JSON format) |
+| **Namespace filter** | Only collects metrics from the agent namespace (`mcd-agent` by default). |
+
+##### Configuration defaults
+
+| Property | Default |
+|---|---|
+| `metricsCollector.collectionIntervalSeconds` | `60` |
+| `metricsCollector.image.repository` | `"otel/opentelemetry-collector-k8s"` |
+| `metricsCollector.image.tag` | `"0.147.0"` |
+
 #### Checking DaemonSet logs
 
 ```bash
 # Logs collector
 kubectl logs -n mcd-agent -l app=logs-collector --tail=50
 kubectl logs -n mcd-agent -l app=logs-collector -f          # follow in real-time
+
+# Metrics collector
+kubectl logs -n mcd-agent -l app=metrics-collector --tail=50
+kubectl logs -n mcd-agent -l app=metrics-collector -f
 ```
 
 #### Checking DaemonSet status
@@ -225,6 +249,7 @@ kubectl logs -n mcd-agent -l app=logs-collector -f          # follow in real-tim
 ```bash
 kubectl get daemonsets -n mcd-agent
 kubectl describe daemonset logs-collector -n mcd-agent
+kubectl describe daemonset metrics-collector -n mcd-agent
 ```
 
 ### Restarting & Updating
@@ -233,9 +258,10 @@ kubectl describe daemonset logs-collector -n mcd-agent
 # Restart all components after config/secret changes
 kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
 kubectl rollout restart daemonset/logs-collector -n mcd-agent
+kubectl rollout restart daemonset/metrics-collector -n mcd-agent
 
 # Or restart everything at once
-kubectl rollout restart daemonset/logs-collector deployment/mcd-agent-deployment -n mcd-agent
+kubectl rollout restart daemonset/logs-collector daemonset/metrics-collector deployment/mcd-agent-deployment -n mcd-agent
 
 # Apply Helm values changes (no image rebuild needed)
 helm upgrade --install hermes-agent ./helm \
