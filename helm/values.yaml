@@ -17,3 +17,12 @@ logsCollector:
     totalLimitSize: "512MB"
     overflowAction: "block"
     retryMaxInterval: "30s"
+
+metricsCollector:
+  enabled: false
+  collectionIntervalSeconds: 60
+  image:
+    repository: otel/opentelemetry-collector-k8s
+    tag: "0.147.0"
+  output:
+    endpoint: ""
