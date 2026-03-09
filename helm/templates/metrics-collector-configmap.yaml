@@ -50,14 +50,16 @@ data:
             enabled: false
 
     processors:
-      # Filter to only the agent namespace
-      filter/namespace:
+      # Filter to only the agent namespace and container
+      filter:
         metrics:
           include:
             match_type: strict
             resource_attributes:
               - key: k8s.namespace.name
                 value: {{ .Values.metricsCollector.namespaceFilter | default (.Values.namespace | default "mcd-agent") }}
+              - key: k8s.container.name
+                value: mcd-generic-agent
       # Batch for efficiency
       batch:
         timeout: 30s
@@ -78,6 +80,6 @@ data:
       pipelines:
         metrics:
           receivers: [kubeletstats]
-          processors: [filter/namespace, batch]
+          processors: [filter, batch]
           exporters: [otlphttp]
 {{- end }}
