@@ -67,7 +67,7 @@ data:
 
     exporters:
       otlphttp:
-        metrics_endpoint: {{ .Values.metricsCollector.output.endpoint }}
+        metrics_endpoint: {{ .Values.metricsCollector.endpoint | default (printf "%s/api/v1/agent/metrics" .Values.container.backendServiceUrl) }}
         encoding: json
         headers:
           x-mcd-id: "${file:/shared/mcd_id}"
