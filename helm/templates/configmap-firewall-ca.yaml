@@ -1,0 +1,10 @@
+{{- if .Values.firewallCa.cert }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: firewall-ca-cert
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+data:
+  ca.crt: |
+    {{- .Values.firewallCa.cert | nindent 4 }}
+{{- end }}
