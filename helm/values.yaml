@@ -1,14 +1,13 @@
 # Default values for hermes-agent helm chart.
 # Environment-specific values files override these defaults.
+# Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
 
 logsCollector:
-  enabled: false
+  enabled: true
   logLevel: "WARN|WARNING|ERROR|CRITICAL"
   image:
     repository: fluent/fluentd
     tag: "v1.18-1"
-  output:
-    endpoint: ""
   buffer:
     flushInterval: "5m"
     retryMaxTimes: 5
@@ -17,3 +16,10 @@ logsCollector:
     totalLimitSize: "512MB"
     overflowAction: "block"
     retryMaxInterval: "30s"
+
+metricsCollector:
+  enabled: true
+  collectionIntervalSeconds: 60
+  image:
+    repository: otel/opentelemetry-collector-k8s
+    tag: "0.147.0"

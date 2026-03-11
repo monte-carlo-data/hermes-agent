@@ -1,0 +1,75 @@
+{{- if .Values.metricsCollector.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: metrics-collector
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+  labels:
+    app: metrics-collector
+spec:
+  selector:
+    matchLabels:
+      app: metrics-collector
+  template:
+    metadata:
+      labels:
+        app: metrics-collector
+    spec:
+      serviceAccountName: mcd-agent-service-account
+      initContainers:
+        # OTel k8s image is distroless (no /bin/sh). Use Alpine to extract
+        # auth credentials from the JSON secret and write them as env vars
+        # to a shared file that the main container sources.
+        - name: extract-credentials
+          image: busybox:1.37
+          command:
+            - /bin/sh
+            - -c
+            - |
+              # Write each credential to its own file so the OTel Collector
+              # can read them via ${file:/shared/mcd_id} config syntax
+              sed -n 's/.*"mcd_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                /etc/secrets/mcd-agent-token/contents.json > /shared/mcd_id
+              sed -n 's/.*"mcd_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                /etc/secrets/mcd-agent-token/contents.json > /shared/mcd_token
+              echo "Credentials extracted successfully"
+          volumeMounts:
+            - name: mcd-agent-token-secret
+              mountPath: /etc/secrets/mcd-agent-token
+              readOnly: true
+            - name: shared-env
+              mountPath: /shared
+      containers:
+        - name: metrics-collector
+          image: "{{ .Values.metricsCollector.image.repository | default "otel/opentelemetry-collector-k8s" }}:{{ .Values.metricsCollector.image.tag | default "0.147.0" }}"
+          args:
+            - --config=/etc/otel/otel-collector-config.yaml
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - name: metrics-collector-config
+              mountPath: /etc/otel
+              readOnly: true
+            - name: shared-env
+              mountPath: /shared
+              readOnly: true
+      volumes:
+        - name: metrics-collector-config
+          configMap:
+            name: metrics-collector-config
+        - name: mcd-agent-token-secret
+          secret:
+            secretName: mcd-agent-token-secret
+        - name: shared-env
+          emptyDir: {}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
+      {{- else }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        kubernetes.io/arch: amd64
+      {{- end }}
+{{- end }}

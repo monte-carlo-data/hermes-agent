@@ -1,0 +1,85 @@
+{{- if .Values.metricsCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-collector-config
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      kubeletstats:
+        collection_interval: {{ .Values.metricsCollector.collectionIntervalSeconds | default 60 }}s
+        auth_type: "serviceAccount"
+        endpoint: "https://${env:NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups:
+          - container
+        metrics:
+          # CPU metrics
+          container.cpu.time:
+            enabled: true
+          container.cpu.usage:
+            enabled: true
+          # Memory metrics
+          container.memory.usage:
+            enabled: true
+          container.memory.rss:
+            enabled: true
+          container.memory.working_set:
+            enabled: true
+          # Disable filesystem and other metrics
+          container.filesystem.available:
+            enabled: false
+          container.filesystem.capacity:
+            enabled: false
+          container.filesystem.usage:
+            enabled: false
+        resource_attributes:
+          # Disable deprecated volume/filesystem resource attributes
+          aws.volume.id:
+            enabled: false
+          fs.type:
+            enabled: false
+          gce.pd.name:
+            enabled: false
+          glusterfs.endpoints.name:
+            enabled: false
+          glusterfs.path:
+            enabled: false
+          partition:
+            enabled: false
+
+    processors:
+      # Filter to only the agent namespace and container
+      filter:
+        metrics:
+          include:
+            match_type: strict
+            resource_attributes:
+              - key: k8s.namespace.name
+                value: {{ .Values.metricsCollector.namespaceFilter | default (.Values.namespace | default "mcd-agent") }}
+              - key: k8s.container.name
+                value: mcd-generic-agent
+      # Batch for efficiency
+      batch:
+        timeout: 30s
+        send_batch_size: 100
+
+    exporters:
+      otlphttp:
+        metrics_endpoint: {{ .Values.metricsCollector.endpoint | default (printf "%s/api/v1/agent/metrics" .Values.container.backendServiceUrl) }}
+        encoding: json
+        headers:
+          x-mcd-id: "${file:/shared/mcd_id}"
+          x-mcd-token: "${file:/shared/mcd_token}"
+          x-metrics-format: "otlp"
+        tls:
+          insecure: true
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [kubeletstats]
+          processors: [filter, batch]
+          exporters: [otlphttp]
+{{- end }}
