@@ -8,7 +8,7 @@ agent-base @ git+https://github.com/monte-carlo-data/agent-base.git@v0.0.2
     # via
     #   agent-common
     #   mcd-agent
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.0.6
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@dev
     # via -r requirements.in
 asn1crypto==1.5.1
     # via
