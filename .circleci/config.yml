@@ -395,37 +395,36 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
-# TODO: temporarily removed for focused testing of agent pull model
-#      - update-kubernetes-azure-cluster:
-#          name: update-kubernetes-azure-cluster-dev
-#          docker_hub_repository_chart: pre-release-generic-agent-helm
-#          docker_hub_repository_image: pre-release-agent
-#          values_file: ./environments/dev/values_az.yaml
-#          code_version: ${NEXT_VERSION}
-#          resource_group: agent-aks-test
-#          cluster_name: hermes-agent-dev
-#          pre-steps:
-#            - checkout
-#            - generate-version-number-dev
-#          context:
-#            - az-sandbox
-#          requires:
-#            - build-and-push-helm-chart-dev
-#      - update-kubernetes-gcp-cluster:
-#          name: update-kubernetes-gcp-cluster-dev
-#          docker_hub_repository_chart: pre-release-generic-agent-helm
-#          docker_hub_repository_image: pre-release-agent
-#          gke_cluster_name: mcd-agent-cluster
-#          cluster_name: hermes-agent-dev
-#          region: us-central1
-#          values_file: ./environments/dev/values_gke.yaml
-#          gcp_creds_config_file: ./environments/dev/gcp/gcp_creds_config_mc_sandbox.json
-#          gcp_project: REDACTED_GCP_PROJECT
-#          code_version: ${NEXT_VERSION}
-#          pre-steps:
-#            - checkout
-#            - generate-version-number-dev
-#          context:
-#            - docker
-#          requires:
-#            - build-and-push-helm-chart-dev
+      - update-kubernetes-azure-cluster:
+          name: update-kubernetes-azure-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          values_file: ./environments/dev/values_az.yaml
+          code_version: ${NEXT_VERSION}
+          resource_group: agent-aks-test
+          cluster_name: hermes-agent-dev
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - az-sandbox
+          requires:
+            - build-and-push-helm-chart-dev
+      - update-kubernetes-gcp-cluster:
+          name: update-kubernetes-gcp-cluster-dev
+          docker_hub_repository_chart: pre-release-generic-agent-helm
+          docker_hub_repository_image: pre-release-agent
+          gke_cluster_name: mcd-agent-cluster
+          cluster_name: hermes-agent-dev
+          region: us-central1
+          values_file: ./environments/dev/values_gke.yaml
+          gcp_creds_config_file: ./environments/dev/gcp/gcp_creds_config_mc_sandbox.json
+          gcp_project: REDACTED_GCP_PROJECT
+          code_version: ${NEXT_VERSION}
+          pre-steps:
+            - checkout
+            - generate-version-number-dev
+          context:
+            - docker
+          requires:
+            - build-and-push-helm-chart-dev
