@@ -12,11 +12,20 @@ data:
       pos_file /fluentd/buffer/fluentd-containers.log.pos
       tag kubernetes.*
       read_from_head true
+      follow_inodes true
       <parse>
-        @type regexp
-        expression /^(?<time>[^ ]+) (?<stream>stdout|stderr) [^ ]+ (?<log>.*)$/
-        time_key time
-        time_format %Y-%m-%dT%H:%M:%S.%N%z
+        @type multi_format
+        <pattern>
+          format json
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%N%z
+        </pattern>
+        <pattern>
+          format regexp
+          expression /^(?<time>[^ ]+) (?<stream>stdout|stderr) [^ ]+ (?<log>.*)$/
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%N%z
+        </pattern>
       </parse>
     </source>
 

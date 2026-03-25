@@ -4,10 +4,10 @@
 
 logsCollector:
   enabled: true
-  logLevel: "WARN|WARNING|ERROR|CRITICAL"
+  logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
-    repository: fluent/fluentd
-    tag: "v1.18-1"
+    repository: fluent/fluentd-kubernetes-daemonset
+    tag: "v1.18-debian-forward-1"
   buffer:
     flushInterval: "5m"
     retryMaxTimes: 5
@@ -19,7 +19,7 @@ logsCollector:
 
 metricsCollector:
   enabled: true
-  collectionIntervalSeconds: 60
+  collectionIntervalSeconds: 300
   image:
     repository: otel/opentelemetry-collector-k8s
     tag: "0.147.0"
