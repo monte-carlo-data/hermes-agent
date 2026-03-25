@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         app: metrics-collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/metrics-collector-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: mcd-agent-service-account
       initContainers:
