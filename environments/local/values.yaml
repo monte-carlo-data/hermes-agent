@@ -4,18 +4,18 @@ namespace: mcd-agent
 replicaCount: 1
 
 image:
-  repository: hermes-agent
-  pullPolicy: Never # Use locally built image loaded into kind
-  tag: "local"
+  repository: montecarlodata/pre-release-agent
+  pullPolicy: IfNotPresent
+  tag: "0.0.1rc217-generic"
 
 container:
   port: 8080
   backendServiceUrl: https://artemis.dev.getmontecarlo.com
   gunicornWorkers: 1
   gunicornThreads: 1
-  storageBucketName: "local-storage"
+  storageBucketName: "k8s-bucket"
   storageType: "S3_COMPATIBLE"
-  storageEndpointUrl: "http://host.docker.internal:9000"
+  storageEndpointUrl: "http://minio-api.minio.svc.cluster.local:9000"
   storageAccessKey: "minioadmin"
   storageSecretKey: "minioadmin"
   opsRunnerThreadCount: "2"
