@@ -31,9 +31,9 @@ spec:
               # Write each credential to its own file so the OTel Collector
               # can read them via ${file:/shared/mcd_id} config syntax
               sed -n 's/.*"mcd_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-                /etc/secrets/mcd-agent-token/contents.json > /shared/mcd_id
+                /etc/secrets/mcd-agent-token/contents.json | tr -d '\n' > /shared/mcd_id
               sed -n 's/.*"mcd_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-                /etc/secrets/mcd-agent-token/contents.json > /shared/mcd_token
+                /etc/secrets/mcd-agent-token/contents.json | tr -d '\n' > /shared/mcd_token
               echo "Credentials extracted successfully"
           volumeMounts:
             - name: mcd-agent-token-secret
