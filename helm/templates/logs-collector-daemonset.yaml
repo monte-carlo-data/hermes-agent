@@ -14,6 +14,8 @@ spec:
     metadata:
       labels:
         app: logs-collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/logs-collector-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: mcd-agent-service-account
       containers:
