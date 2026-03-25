@@ -13,7 +13,7 @@ container:
   backendServiceUrl: https://artemis.dev.getmontecarlo.com
   gunicornWorkers: 1
   gunicornThreads: 1
-  storageBucketName: "k8s-bucket"
+  storageBucketName: "mcd-agent-storage"
   storageType: "S3_COMPATIBLE"
   storageEndpointUrl: "http://minio-api.minio.svc.cluster.local:9000"
   storageAccessKey: "minioadmin"
