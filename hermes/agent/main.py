@@ -49,28 +49,21 @@ signal.signal(signal.SIGINT, handler)
 @app.get("/api/v1/test/healthcheck")
 def health_check():
     """
-    Used for readiness probe from the Snowflake platform.
+    Used for container liveness and readiness probes.
+
+    Example:
+        kubectl exec deploy/mcd-agent-deployment -n mcd-agent -- curl -s http://localhost:8080/api/v1/test/healthcheck
     """
     return "OK"
-
-
-@app.post("/api/v1/test/health")
-def api_health():
-    """
-    Intended to be used from the Streamlit application, this gets called through a
-    Snowflake function.
-    """
-    health_response = service.health_information()
-    output_rows = [[0, json.dumps(health_response)]]
-    response = make_response({"data": output_rows})
-    response.headers["Content-type"] = "application/json"
-    return response
 
 
 @app.get("/api/v1/test/health")
 def health():
     """
-    Intended to be used for local troubleshooting, not from the Streamlit application.
+    Intended to be used for troubleshooting.
+
+    Example:
+        kubectl exec deploy/mcd-agent-deployment -n mcd-agent -- curl -s http://localhost:8080/api/v1/test/health
     """
     health_response = service.health_information(trace_id=request.args.get("trace_id"))
     response = make_response(health_response)
@@ -81,8 +74,10 @@ def health():
 @app.post("/api/v1/test/reachability")
 def run_reachability_test():
     """
-    Intended to be used from the Streamlit application, this gets called through a
-    Snowflake function.
+    Checks connectivity to the Monte Carlo backend.
+
+    Example:
+        kubectl exec deploy/mcd-agent-deployment -n mcd-agent -- curl -s -X POST http://localhost:8080/api/v1/test/reachability
     """
     reachability_response = service.run_reachability_test()
     output_rows = [[0, json.dumps(reachability_response)]]
