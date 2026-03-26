@@ -318,9 +318,13 @@ workflows:
 
   build-and-deploy:
     jobs:
-      - run-linter
+      - run-linter:
+          # run for all tags and branches, so the job is available for build-and-push-prod
+          filters:
+            tags:
+              only: /.*/
       - run-test-docker:
-          # run for all tags and branches, we need to add this so the job is available for build-and-push-prod
+          # run for all tags and branches, so the job is available for build-and-push-prod
           filters:
             tags:
               only: /.*/
@@ -395,6 +399,9 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
+          filters:
+            tags:
+              only: /.*/
       - update-kubernetes-azure-cluster:
           name: update-kubernetes-azure-cluster-dev
           docker_hub_repository_chart: pre-release-generic-agent-helm
