@@ -23,17 +23,26 @@ spec:
         - name: mcd-generic-agent
           image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports: 
-            - containerPort: {{ .Values.container.port }}
+          ports:
+            - containerPort: {{ .Values.container.port | default 8080 }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/test/healthcheck
+              port: {{ .Values.container.port | default 8080 }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/test/healthcheck
+              port: {{ .Values.container.port | default 8080 }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
           env:
             - name: PORT
-              value: {{ .Values.container.port | quote }}
+              value: {{ .Values.container.port | default 8080 | quote }}
             - name: BACKEND_SERVICE_URL
               value: {{ .Values.container.backendServiceUrl | quote }}
-            - name: GUNICORN_WORKERS
-              value: {{ .Values.container.gunicornWorkers | quote }}
-            - name: GUNICORN_THREADS
-              value: {{ .Values.container.gunicornThreads | quote }}
             - name: MCD_AGENT_WRAPPER_TYPE
               value: KUBERNETES
             - name: MCD_STORAGE_BUCKET_NAME
@@ -41,9 +50,9 @@ spec:
             - name: MCD_STORAGE
               value: {{ .Values.container.storageType | quote }}
             - name: MCD_OPS_RUNNER_THREAD_COUNT
-              value: {{ .Values.container.opsRunnerThreadCount | default "5" | int | quote}}
+              value: {{ .Values.container.opsRunnerThreadCount | default "18" | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
-              value: {{ .Values.container.publisherThreadCount | default "2" | int | quote }}
+              value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
             {{- if .Values.container.storageEndpointUrl }}

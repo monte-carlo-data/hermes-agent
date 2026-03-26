@@ -2,6 +2,10 @@
 # Environment-specific values files override these defaults.
 # Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
 
+container:
+  opsRunnerThreadCount: "18"
+  publisherThreadCount: "3"
+
 logsCollector:
   enabled: true
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
