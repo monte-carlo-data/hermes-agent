@@ -33,3 +33,15 @@ kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
   --from-file=postgres.json=environments/local/secrets/postgres.json
 kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
 ```
+
+Then register the credentials in Monte Carlo:
+
+```bash
+montecarlo integrations add-self-hosted-credentials-v2 \
+  --connection-type postgres \
+  --self-hosted-credentials-type FILE \
+  --file-path /etc/secrets/integrations/postgres.json \
+  --name postgres-local
+```
+
+See the [Self-Hosted Credentials](https://docs.getmontecarlo.com/docs/self-hosted-credentials) documentation for how to define the JSON file for other integrations and how to complete the configuration in Monte Carlo.
