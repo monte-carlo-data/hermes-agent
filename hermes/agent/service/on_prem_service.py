@@ -60,7 +60,6 @@ class OnPremService(BaseEgressAgentService):
                 path=_NETWORK_PATH_PREFIX,
                 matching_type=OperationMatchingType.STARTS_WITH,
                 method=self._execute_network_operation,
-                schedule=True,
             )
         )
 

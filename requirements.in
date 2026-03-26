@@ -1,2 +1,2 @@
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.1.0
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@cfritz/remove-sync-operation-support
 mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.12
