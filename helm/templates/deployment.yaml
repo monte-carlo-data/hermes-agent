@@ -30,10 +30,6 @@ spec:
               value: {{ .Values.container.port | default 8080 | quote }}
             - name: BACKEND_SERVICE_URL
               value: {{ .Values.container.backendServiceUrl | quote }}
-            - name: GUNICORN_WORKERS
-              value: {{ .Values.container.gunicornWorkers | quote }}
-            - name: GUNICORN_THREADS
-              value: {{ .Values.container.gunicornThreads | quote }}
             - name: MCD_AGENT_WRAPPER_TYPE
               value: KUBERNETES
             - name: MCD_STORAGE_BUCKET_NAME

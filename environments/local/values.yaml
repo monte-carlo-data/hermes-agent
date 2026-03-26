@@ -10,8 +10,6 @@ image:
 
 container:
   backendServiceUrl: https://artemis.dev.getmontecarlo.com
-  gunicornWorkers: 1
-  gunicornThreads: 1
   storageBucketName: "local-storage"
   storageType: "S3_COMPATIBLE"
   storageEndpointUrl: "http://host.docker.internal:9000"
