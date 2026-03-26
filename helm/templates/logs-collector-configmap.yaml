@@ -6,9 +6,14 @@ metadata:
   namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
 data:
   fluent.conf: |
+    # Prevent Fluentd from dumping the full config (which includes secrets) at startup
+    <system>
+      suppress_config_dump true
+    </system>
+
     <source>
       @type tail
-      path /var/log/containers/*_{{ .Values.namespace | default "mcd-agent" }}_*.log
+      path /var/log/containers/mcd-agent-deployment-*_{{ .Values.namespace | default "mcd-agent" }}_*.log
       pos_file /fluentd/buffer/fluentd-containers.log.pos
       tag kubernetes.*
       read_from_head true

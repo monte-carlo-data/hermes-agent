@@ -1,18 +1,17 @@
-# Values for local development using kind
-# PostgreSQL running via docker-compose on the host machine
+# Values for local development using Rancher Desktop (k3s), kind, or similar
 namespace: mcd-agent
 replicaCount: 1
 
 image:
-  repository: hermes-agent
-  pullPolicy: Never # Use locally built image loaded into kind
-  tag: "local"
+  repository: montecarlodata/pre-release-agent
+  pullPolicy: Always
+  tag: "latest-generic"
 
 container:
   backendServiceUrl: https://artemis.dev.getmontecarlo.com
-  storageBucketName: "local-storage"
+  storageBucketName: "mcd-agent-storage"
   storageType: "S3_COMPATIBLE"
-  storageEndpointUrl: "http://host.docker.internal:9000"
+  storageEndpointUrl: "http://minio-api.minio.svc.cluster.local:9000"
   storageAccessKey: "minioadmin"
   storageSecretKey: "minioadmin"
   opsRunnerThreadCount: "6"
@@ -28,8 +27,9 @@ skipExternalSecrets: true
 logsCollector:
   containerRuntimeLogPath: "/var/lib/docker/containers"
 
-# Override nodeSelector for Apple Silicon (arm64) Macs.
-# Comment this out or change to amd64 if running on an Intel Mac.
+# The agent image is amd64-only. On Apple Silicon Macs, enable Rosetta emulation
+# in Rancher Desktop (Preferences > Virtual Machine > Emulation > VZ + Rosetta).
+# Comment out or adjust nodeSelector if running on an Intel Mac.
 nodeSelector:
   kubernetes.io/os: linux
   kubernetes.io/arch: arm64
