@@ -23,8 +23,20 @@ spec:
         - name: mcd-generic-agent
           image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports: 
+          ports:
             - containerPort: {{ .Values.container.port | default 8080 }}
+          livenessProbe:
+            httpGet:
+              path: /api/v1/test/healthcheck
+              port: {{ .Values.container.port | default 8080 }}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/v1/test/healthcheck
+              port: {{ .Values.container.port | default 8080 }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
           env:
             - name: PORT
               value: {{ .Values.container.port | default 8080 | quote }}
