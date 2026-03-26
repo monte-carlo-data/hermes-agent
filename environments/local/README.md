@@ -41,6 +41,13 @@ See [minio/README.md](minio/README.md) for more details and a Docker Compose alt
 kubectl create namespace mcd-agent
 ```
 
+The Helm chart expects to own the namespace. Label and annotate it so Helm can adopt it:
+
+```bash
+kubectl label namespace mcd-agent app.kubernetes.io/managed-by=Helm
+kubectl annotate namespace mcd-agent meta.helm.sh/release-name=mcd-agent meta.helm.sh/release-namespace=default
+```
+
 ## 3. Create Secrets
 
 The agent requires two secrets to exist before the Helm chart is deployed.
@@ -77,7 +84,7 @@ kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
 ## 4. Deploy the Agent with Helm
 
 ```bash
-helm upgrade --install hermes-agent-dev \
+helm upgrade --install mcd-agent \
   oci://registry-1.docker.io/montecarlodata/pre-release-generic-agent-helm \
   --version 0.0.1-rc227 \
   -f ./environments/local/values.yaml
@@ -92,6 +99,15 @@ kubectl get pods -n mcd-agent
 kubectl logs -n mcd-agent -l app=mcd-agent --tail=30
 ```
 
+Run the reachability test to confirm the agent can authenticate with the MC platform:
+
+```bash
+kubectl exec -n mcd-agent deploy/mcd-agent-deployment -- \
+  curl -s -X POST localhost:8080/api/v1/test/reachability
+```
+
+A successful response contains `"ok": true`.
+
 ## Updating the Agent Version
 
 To deploy a newer version, update the `--version` flag and the `image.tag` in `values.yaml` to match, then re-run the helm upgrade command.
@@ -99,7 +115,7 @@ To deploy a newer version, update the `--version` flag and the `image.tag` in `v
 ## Tearing Down
 
 ```bash
-helm uninstall hermes-agent-dev
+helm uninstall mcd-agent
 kubectl delete namespace mcd-agent
 kubectl delete -f environments/local/minio/k8s.yaml
 ```
