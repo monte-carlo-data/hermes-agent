@@ -12,11 +12,24 @@ data:
       pos_file /fluentd/buffer/fluentd-containers.log.pos
       tag kubernetes.*
       read_from_head true
+      follow_inodes true
+      # Container runtimes use different log formats. multi_format tries
+      # each pattern in order until one matches:
+      #   - json: Docker / k3s containerd ({"log":"...","stream":"...","time":"..."})
+      #   - regexp: CRI format used by EKS containerd (<time> <stream> <flags> <message>)
       <parse>
-        @type regexp
-        expression /^(?<time>[^ ]+) (?<stream>stdout|stderr) [^ ]+ (?<log>.*)$/
-        time_key time
-        time_format %Y-%m-%dT%H:%M:%S.%N%z
+        @type multi_format
+        <pattern>
+          format json
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%N%z
+        </pattern>
+        <pattern>
+          format regexp
+          expression /^(?<time>[^ ]+) (?<stream>stdout|stderr) [^ ]+ (?<log>.*)$/
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%N%z
+        </pattern>
       </parse>
     </source>
 

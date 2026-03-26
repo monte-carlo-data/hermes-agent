@@ -4,10 +4,14 @@
 
 logsCollector:
   enabled: true
-  logLevel: "WARN|WARNING|ERROR|CRITICAL"
+  logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
-    repository: fluent/fluentd
-    tag: "v1.18-1"
+    # The -forward- variant is the most minimal kubernetes-daemonset image
+    # (forward is a core plugin, no extra gems). It includes multi_format
+    # parser needed to handle both CRI and Docker JSON log formats.
+    # There is no "base" or "http" variant — all images are named by output plugin.
+    repository: fluent/fluentd-kubernetes-daemonset
+    tag: "v1.18-debian-forward-1"
   buffer:
     flushInterval: "5m"
     retryMaxTimes: 5
@@ -19,7 +23,7 @@ logsCollector:
 
 metricsCollector:
   enabled: true
-  collectionIntervalSeconds: 60
+  collectionIntervalSeconds: 300
   image:
     repository: otel/opentelemetry-collector-k8s
     tag: "0.147.0"

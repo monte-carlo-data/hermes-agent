@@ -29,6 +29,11 @@ service:
 # Kubernetes Secrets are created manually via kubectl instead.
 skipExternalSecrets: true
 
+# k3s containerd uses Docker log format — symlinks under
+# /var/log/pods/ resolve to /var/lib/docker/containers/.
+logsCollector:
+  containerRuntimeLogPath: "/var/lib/docker/containers"
+
 # Override nodeSelector for Apple Silicon (arm64) Macs.
 # Comment this out or change to amd64 if running on an Intel Mac.
 nodeSelector:
