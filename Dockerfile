@@ -1,8 +1,8 @@
 FROM montecarlodata/agent:latest-generic AS base
 
 # Web server env var configuration
-ENV GUNICORN_WORKERS=5
-ENV GUNICORN_THREADS=8
+ENV GUNICORN_WORKERS=1
+ENV GUNICORN_THREADS=1
 ENV GUNICORN_TIMEOUT=0
 
 # Allow statements and log messages to immediately appear in the logs
