@@ -9,7 +9,6 @@ image:
   tag: "local"
 
 container:
-  port: 8080
   backendServiceUrl: https://artemis.dev.getmontecarlo.com
   gunicornWorkers: 1
   gunicornThreads: 1
@@ -21,9 +20,6 @@ container:
   opsRunnerThreadCount: "2"
   publisherThreadCount: "1"
 
-
-service:
-  port: 8080
 
 # Skip External Secrets Operator resources for local development.
 # Kubernetes Secrets are created manually via kubectl instead.

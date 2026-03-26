@@ -24,10 +24,10 @@ spec:
           image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: 
-            - containerPort: {{ .Values.container.port }}
+            - containerPort: {{ .Values.container.port | default 8080 }}
           env:
             - name: PORT
-              value: {{ .Values.container.port | quote }}
+              value: {{ .Values.container.port | default 8080 | quote }}
             - name: BACKEND_SERVICE_URL
               value: {{ .Values.container.backendServiceUrl | quote }}
             - name: GUNICORN_WORKERS
