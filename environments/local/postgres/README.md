@@ -25,6 +25,12 @@ From inside the Kubernetes cluster (e.g. the agent pod), PostgreSQL is reachable
 
 ## Adding as an Agent Integration
 
+Create `postgres.json` from the template if it doesn't exist:
+
+```bash
+cp environments/local/secrets/postgres-template.json environments/local/secrets/postgres.json
+```
+
 Replace the empty integrations secret with the Postgres connection details:
 
 ```bash
