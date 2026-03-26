@@ -6,6 +6,10 @@ logsCollector:
   enabled: true
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
+    # The -forward- variant is the most minimal kubernetes-daemonset image
+    # (forward is a core plugin, no extra gems). It includes multi_format
+    # parser needed to handle both CRI and Docker JSON log formats.
+    # There is no "base" or "http" variant — all images are named by output plugin.
     repository: fluent/fluentd-kubernetes-daemonset
     tag: "v1.18-debian-forward-1"
   buffer:
