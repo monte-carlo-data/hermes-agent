@@ -37,9 +37,9 @@ spec:
             - name: MCD_STORAGE
               value: {{ .Values.container.storageType | quote }}
             - name: MCD_OPS_RUNNER_THREAD_COUNT
-              value: {{ .Values.container.opsRunnerThreadCount | default "5" | int | quote}}
+              value: {{ .Values.container.opsRunnerThreadCount | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
-              value: {{ .Values.container.publisherThreadCount | default "2" | int | quote }}
+              value: {{ .Values.container.publisherThreadCount | quote }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
             {{- if .Values.container.storageEndpointUrl }}

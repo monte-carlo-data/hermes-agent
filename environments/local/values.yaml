@@ -15,7 +15,7 @@ container:
   storageEndpointUrl: "http://host.docker.internal:9000"
   storageAccessKey: "minioadmin"
   storageSecretKey: "minioadmin"
-  opsRunnerThreadCount: "2"
+  opsRunnerThreadCount: "6"
   publisherThreadCount: "1"
 
 
