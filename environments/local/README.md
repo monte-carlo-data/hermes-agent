@@ -108,6 +108,20 @@ kubectl exec -n mcd-agent deploy/mcd-agent-deployment -- \
 
 A successful response contains `"ok": true`.
 
+## Adding Secrets for Integrations
+
+The `mcd-integrations-secrets` secret created in step 3 starts empty. To test integrations
+locally, replace it with a secret containing the connection details:
+
+```bash
+kubectl delete secret mcd-integrations-secrets -n mcd-agent
+kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
+  --from-file=<integration>.json=environments/local/secrets/<integration>.json
+kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
+```
+
+See [postgres/README.md](postgres/README.md) for a PostgreSQL example.
+
 ## Updating the Agent Version
 
 To deploy a newer version, update the `--version` flag and the `image.tag` in `values.yaml` to match, then re-run the helm upgrade command.

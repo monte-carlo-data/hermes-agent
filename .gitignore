@@ -209,5 +209,8 @@ __marimo__/
 *.DS_Store
 .terraform/
 
+# Claude Code
+.claude/scheduled_tasks.lock
+
 # Local agent secrets (real credentials)
 environments/local/secrets/agent-token.json
