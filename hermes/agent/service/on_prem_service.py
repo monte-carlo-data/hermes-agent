@@ -34,6 +34,7 @@ class OnPremService(BaseEgressAgentService):
         config_manager: ConfigurationManager,
         logging_utils: LoggingUtils,
     ):
+        logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
         if _MCD_TOKEN_FILE_PATH:
             logger.info(f"Getting MCD token from file: {_MCD_TOKEN_FILE_PATH}")
             login_token_provider = FileLoginTokenProvider(
