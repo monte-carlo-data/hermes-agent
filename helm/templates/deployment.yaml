@@ -80,6 +80,10 @@ spec:
             - name: MCD_STORAGE_ACCOUNT_NAME
               value: {{ .Values.container.storageAccountName | quote }}
             {{- end }}
+            {{- if include "hermes.firewallCa.enabled" . }}
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/ssl/combined-ca/ca-bundle.crt
+            {{- end }}
             {{- if .Values.container.extraEnv }}
             {{- .Values.container.extraEnv | toYaml | nindent 12 }}
             {{- end }}

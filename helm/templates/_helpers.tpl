@@ -8,7 +8,8 @@ Used by the agent deployment and both collector daemonsets.
 {{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef -}}true{{- end -}}
 {{- end -}}
 
-{{/* Init container that merges system CAs + firewall CA into a combined bundle */}}
+{{/* Init container that merges system CAs + firewall CA into a combined bundle.
+     Alpine is pinned to a specific minor for reproducibility — bump periodically. */}}
 {{- define "hermes.firewallCa.initContainer" -}}
 - name: build-ca-bundle
   image: alpine:3.21
