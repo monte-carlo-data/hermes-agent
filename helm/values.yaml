@@ -1,0 +1,38 @@
+# Default values for hermes-agent helm chart.
+# Environment-specific values files override these defaults.
+# Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
+
+image:
+  repository: montecarlodata/agent
+  pullPolicy: Always
+  tag: "latest-generic"
+
+container:
+  opsRunnerThreadCount: "18"
+  publisherThreadCount: "3"
+
+logsCollector:
+  enabled: true
+  logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
+  image:
+    # The -forward- variant is the most minimal kubernetes-daemonset image
+    # (forward is a core plugin, no extra gems). It includes multi_format
+    # parser needed to handle both CRI and Docker JSON log formats.
+    # There is no "base" or "http" variant — all images are named by output plugin.
+    repository: fluent/fluentd-kubernetes-daemonset
+    tag: "v1.18-debian-forward-1"
+  buffer:
+    flushInterval: "5m"
+    retryMaxTimes: 5
+    retryWait: "1s"
+    chunkLimitSize: "8MB"
+    totalLimitSize: "512MB"
+    overflowAction: "block"
+    retryMaxInterval: "30s"
+
+metricsCollector:
+  enabled: true
+  collectionIntervalSeconds: 300
+  image:
+    repository: otel/opentelemetry-collector-k8s
+    tag: "0.147.0"

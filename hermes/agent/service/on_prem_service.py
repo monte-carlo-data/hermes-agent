@@ -15,7 +15,6 @@ from apollo.egress.agent.service.file_login_token_provider import FileLoginToken
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
-from hermes.agent.service.logs_service import LogsService
 from hermes.agent.service.metrics_service import MetricsService
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
@@ -35,6 +34,7 @@ class OnPremService(BaseEgressAgentService):
         config_manager: ConfigurationManager,
         logging_utils: LoggingUtils,
     ):
+        logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
         if _MCD_TOKEN_FILE_PATH:
             logger.info(f"Getting MCD token from file: {_MCD_TOKEN_FILE_PATH}")
             login_token_provider = FileLoginTokenProvider(
@@ -48,7 +48,8 @@ class OnPremService(BaseEgressAgentService):
             platform="Generic",
             service_name="Generic Agent",
             config_manager=config_manager,
-            logs_service=LogsService(),
+            skip_logs=True,
+            logs_service=None,
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
@@ -60,7 +61,6 @@ class OnPremService(BaseEgressAgentService):
                 path=_NETWORK_PATH_PREFIX,
                 matching_type=OperationMatchingType.STARTS_WITH,
                 method=self._execute_network_operation,
-                schedule=True,
             )
         )
 

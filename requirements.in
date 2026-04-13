@@ -1,3 +1,2 @@
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.0.5
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.8
-
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.1.2
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.12

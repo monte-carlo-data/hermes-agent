@@ -8,7 +8,7 @@ agent-base @ git+https://github.com/monte-carlo-data/agent-base.git@v0.0.2
     # via
     #   agent-common
     #   mcd-agent
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.0.5
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.1.2
     # via -r requirements.in
 asn1crypto==1.5.1
     # via
@@ -21,12 +21,13 @@ attrs==25.4.0
     #   zeep
 azure-common==1.1.28
     # via azure-mgmt-storage
-azure-core==1.36.0
+azure-core==1.38.2
     # via
     #   azure-identity
     #   azure-keyvault-secrets
     #   azure-mgmt-core
     #   azure-storage-blob
+    #   mcd-agent
 azure-identity==1.18.0
     # via mcd-agent
 azure-keyvault-secrets==4.10.0
@@ -201,7 +202,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.26.1
     # via dataclasses-json
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.8
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.4.12
     # via -r requirements.in
 more-itertools==10.8.0
     # via simple-salesforce
@@ -226,8 +227,10 @@ openpyxl==3.1.5
     # via databricks-sql-connector
 oracledb==3.4.1
     # via mcd-agent
-orjson==3.11.5
-    # via trino
+orjson==3.11.7
+    # via
+    #   mcd-agent
+    #   trino
 oscrypto @ git+https://github.com/wbond/oscrypto@master
     # via mcd-agent
 packaging==25.0
@@ -250,7 +253,7 @@ proto-plus==1.26.1
     # via
     #   google-api-core
     #   google-cloud-secret-manager
-protobuf==5.29.5
+protobuf==5.29.6
     # via
     #   google-api-core
     #   google-cloud-secret-manager
