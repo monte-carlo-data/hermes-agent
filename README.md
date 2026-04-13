@@ -252,20 +252,6 @@ kubectl describe daemonset logs-collector -n mcd-agent
 kubectl describe daemonset metrics-collector -n mcd-agent
 ```
 
-### Firewall TLS Inspection Support
-
-When deploying behind a corporate firewall that performs TLS inspection (e.g. Azure Firewall Premium), the agent and collectors need to trust the firewall's CA certificate. The Helm chart supports this via `firewallCa.*` values — no changes needed when TLS inspection is not in use.
-
-| Property | Description |
-|---|---|
-| `firewallCa.cert` | Inline PEM certificate (stored in a ConfigMap) |
-| `firewallCa.externalSecretRef` | Secret key name in the configured secret store (fetched via ExternalSecret) |
-
-When either is set, the chart automatically:
-- Adds an `alpine` init container to each workload that merges system CAs with the firewall CA
-- Sets `REQUESTS_CA_BUNDLE` (agent) and `SSL_CERT_FILE` (logs collector) to the combined bundle
-- Configures the metrics collector's OTel exporter with `ca_file` pointing to the combined bundle
-
 ### Restarting & Updating
 
 ```bash
