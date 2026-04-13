@@ -74,7 +74,11 @@ data:
           x-mcd-token: "${file:/shared/mcd_token}"
           x-metrics-format: "otlp"
         tls:
+          {{- if include "hermes.firewallCa.enabled" . }}
+          ca_file: /etc/ssl/combined-ca/ca-bundle.crt
+          {{- else }}
           insecure: true
+          {{- end }}
 
     service:
       pipelines:

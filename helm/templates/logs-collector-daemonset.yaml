@@ -18,6 +18,10 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/logs-collector-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: mcd-agent-service-account
+      {{- if include "hermes.firewallCa.enabled" . }}
+      initContainers:
+        {{- include "hermes.firewallCa.initContainer" . | nindent 8 }}
+      {{- end }}
       containers:
         - name: logs-collector
           image: "{{ .Values.logsCollector.image.repository | default "fluent/fluentd" }}:{{ .Values.logsCollector.image.tag | default "v1.18-1" }}"
@@ -40,6 +44,10 @@ spec:
           env:
             - name: LOGGING_ENABLED
               value: {{ .Values.logsCollector.enabled | quote }}
+            {{- if include "hermes.firewallCa.enabled" . }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/combined-ca/ca-bundle.crt
+            {{- end }}
           volumeMounts:
             - name: logs-collector-config
               mountPath: /fluentd/etc
@@ -57,6 +65,9 @@ spec:
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            {{- if include "hermes.firewallCa.enabled" . }}
+            {{- include "hermes.firewallCa.volumeMounts" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: logs-collector-config
           configMap:
@@ -74,6 +85,9 @@ spec:
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        {{- if include "hermes.firewallCa.enabled" . }}
+        {{- include "hermes.firewallCa.volumes" . | nindent 8 }}
+        {{- end }}
       {{- if .Values.nodeSelector }}
       nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
       {{- else }}

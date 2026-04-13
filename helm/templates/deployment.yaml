@@ -19,21 +19,10 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: mcd-agent-service-account
-      {{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef .Values.extraInitContainers }}
+      {{- if or (include "hermes.firewallCa.enabled" .) .Values.extraInitContainers }}
       initContainers:
-        {{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef }}
-        - name: build-ca-bundle
-          image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
-          command:
-            - sh
-            - -c
-            - cat /etc/ssl/certs/ca-certificates.crt /etc/ssl/firewall-ca/ca.crt > /etc/ssl/combined-ca/ca-bundle.crt
-          volumeMounts:
-            - name: firewall-ca
-              mountPath: /etc/ssl/firewall-ca
-              readOnly: true
-            - name: combined-ca
-              mountPath: /etc/ssl/combined-ca
+        {{- if include "hermes.firewallCa.enabled" . }}
+        {{- include "hermes.firewallCa.initContainer" . | nindent 8 }}
         {{- end }}
         {{- if .Values.extraInitContainers }}
         {{- .Values.extraInitContainers | toYaml | nindent 8 }}
@@ -101,13 +90,8 @@ spec:
             - name: mcd-integrations-secrets
               mountPath: /etc/secrets/integrations
               readOnly: true
-            {{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef }}
-            - name: firewall-ca
-              mountPath: /etc/ssl/firewall-ca
-              readOnly: true
-            - name: combined-ca
-              mountPath: /etc/ssl/combined-ca
-              readOnly: true
+            {{- if include "hermes.firewallCa.enabled" . }}
+            {{- include "hermes.firewallCa.volumeMounts" . | nindent 12 }}
             {{- end }}
             {{- if .Values.extraVolumeMounts }}
             {{- .Values.extraVolumeMounts | toYaml | nindent 12 }}
@@ -119,17 +103,8 @@ spec:
         - name: mcd-integrations-secrets
           secret:
             secretName: mcd-integrations-secrets
-        {{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef }}
-        - name: firewall-ca
-          {{- if .Values.firewallCa.cert }}
-          configMap:
-            name: firewall-ca-cert
-          {{- else }}
-          secret:
-            secretName: firewall-ca-cert
-          {{- end }}
-        - name: combined-ca
-          emptyDir: {}
+        {{- if include "hermes.firewallCa.enabled" . }}
+        {{- include "hermes.firewallCa.volumes" . | nindent 8 }}
         {{- end }}
         {{- if .Values.extraVolumes }}
         {{- .Values.extraVolumes | toYaml | nindent 8 }}
