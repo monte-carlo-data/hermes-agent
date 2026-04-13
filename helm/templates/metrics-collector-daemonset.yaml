@@ -19,6 +19,9 @@ spec:
     spec:
       serviceAccountName: mcd-agent-service-account
       initContainers:
+        {{- if include "hermes.firewallCa.enabled" . }}
+        {{- include "hermes.firewallCa.initContainer" . | nindent 8 }}
+        {{- end }}
         # OTel k8s image is distroless (no /bin/sh). Use Alpine to extract
         # auth credentials from the JSON secret and write them as env vars
         # to a shared file that the main container sources.
@@ -58,6 +61,9 @@ spec:
             - name: shared-env
               mountPath: /shared
               readOnly: true
+            {{- if include "hermes.firewallCa.enabled" . }}
+            {{- include "hermes.firewallCa.volumeMounts" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: metrics-collector-config
           configMap:
@@ -67,6 +73,9 @@ spec:
             secretName: mcd-agent-token-secret
         - name: shared-env
           emptyDir: {}
+        {{- if include "hermes.firewallCa.enabled" . }}
+        {{- include "hermes.firewallCa.volumes" . | nindent 8 }}
+        {{- end }}
       {{- if .Values.nodeSelector }}
       nodeSelector: {{ .Values.nodeSelector | toYaml | nindent 8 }}
       {{- else }}

@@ -30,6 +30,10 @@ logsCollector:
     overflowAction: "block"
     retryMaxInterval: "30s"
 
+# Firewall CA for TLS inspection environments.
+# Set firewallCa.cert (inline PEM) or firewallCa.externalSecretRef (secret store key name).
+firewallCa: {}
+
 metricsCollector:
   enabled: true
   collectionIntervalSeconds: 300

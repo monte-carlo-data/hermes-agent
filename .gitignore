@@ -208,6 +208,7 @@ __marimo__/
 
 *.DS_Store
 .terraform/
+errored.tfstate
 
 # Claude Code
 .claude/scheduled_tasks.lock
