@@ -259,7 +259,7 @@ When deploying behind a corporate firewall that performs TLS inspection (e.g. Az
 | Property | Description |
 |---|---|
 | `firewallCa.cert` | Inline PEM certificate (stored in a ConfigMap) |
-| `firewallCa.keyVaultSecretRef` | Azure Key Vault secret name (fetched via ExternalSecret) |
+| `firewallCa.externalSecretRef` | Secret key name in the configured secret store (fetched via ExternalSecret) |
 
 When either is set, the chart automatically:
 - Adds an `alpine` init container to each workload that merges system CAs with the firewall CA

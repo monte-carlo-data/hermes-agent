@@ -3,9 +3,12 @@ Firewall CA — shared helpers for TLS inspection support.
 Used by the agent deployment and both collector daemonsets.
 */}}
 
-{{/* Whether firewall CA is configured (inline cert or Key Vault reference) */}}
+{{/* Whether firewall CA is configured (inline cert or external secret reference) */}}
 {{- define "hermes.firewallCa.enabled" -}}
-{{- if or .Values.firewallCa.cert .Values.firewallCa.keyVaultSecretRef -}}true{{- end -}}
+{{- if and .Values.firewallCa.cert .Values.firewallCa.externalSecretRef -}}
+{{- fail "firewallCa.cert and firewallCa.externalSecretRef are mutually exclusive — set one or the other" -}}
+{{- end -}}
+{{- if or .Values.firewallCa.cert .Values.firewallCa.externalSecretRef -}}true{{- end -}}
 {{- end -}}
 
 {{/* Init container that merges system CAs + firewall CA into a combined bundle.
