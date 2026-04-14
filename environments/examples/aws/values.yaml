@@ -1,0 +1,44 @@
+# Example values for deploying the Hermes Agent on AWS EKS
+# Copy this file and replace all <your-...> placeholders with your actual values.
+# Resources referenced here (S3 bucket, IAM role, Secrets Manager secret) should be
+# created before deploying. See:
+#   - Public docs: https://docs.getmontecarlo.com/docs/aws-eks
+#   - Terraform module: https://github.com/monte-carlo-data/terraform-aws-mcd-k8s-agent
+#   - Helm chart README: helm/README.md
+namespace: mcd-agent
+replicaCount: 1
+
+image:
+  repository: montecarlodata/agent
+  pullPolicy: Always
+  tag: "latest-generic"
+
+container:
+  # Monte Carlo Agent Service URL — use the URL provided during onboarding.
+  backendServiceUrl: https://artemis.getmontecarlo.com
+  # Name of the S3 bucket created for agent storage.
+  storageBucketName: "<your-s3-bucket-name>"
+  storageType: "S3"
+
+secretStore:
+  provider:
+    aws:
+      # IAM role ARN that grants the ESO service account access to Secrets Manager.
+      # Terraform output: mcd_secrets_access_role_arn
+      role: <your-iam-role-arn>
+      # AWS region where the Secrets Manager secret is stored.
+      region: <your-aws-region>
+      service: SecretsManager
+
+tokenSecret:
+  remoteRef:
+    # Name of the Secrets Manager secret containing {"mcd_id": "...", "mcd_token": "..."}.
+    key: <your-secret-name>
+
+# Optional: integration credentials stored as separate secrets in Secrets Manager.
+# Each entry becomes a file at /etc/secrets/integrations/<secretKey>.
+# integrationsSecrets:
+#   data:
+#     - secretKey: my_integration.json
+#       remoteRef:
+#         key: <your-integration-secret-name>

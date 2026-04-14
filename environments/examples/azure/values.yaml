@@ -1,0 +1,58 @@
+# Example values for deploying the Hermes Agent on Azure AKS
+# Copy this file and replace all <your-...> placeholders with your actual values.
+# Resources referenced here (Key Vault, Managed Identity, Storage Account) should be
+# created before deploying. See:
+#   - Public docs: https://docs.getmontecarlo.com/docs/azure-aks
+#   - Terraform module: https://github.com/monte-carlo-data/terraform-azurerm-mcd-k8s-agent
+#   - Helm chart README: helm/README.md
+namespace: mcd-agent
+replicaCount: 1
+
+image:
+  repository: montecarlodata/agent
+  pullPolicy: Always
+  tag: "latest-generic"
+
+container:
+  # Monte Carlo Agent Service URL — use the URL provided during onboarding.
+  backendServiceUrl: https://artemis.getmontecarlo.com
+  # Name of the Azure Storage Account.
+  storageAccountName: "<your-storage-account-name>"
+  # Name of the blob container within the storage account.
+  storageBucketName: "<your-blob-container-name>"
+  storageType: "AZURE_BLOB"
+
+serviceAccount:
+  annotations:
+    # Client ID of the User Assigned Managed Identity configured for workload identity.
+    azure.workload.identity/client-id: <your-managed-identity-client-id>
+
+# Required for Azure Workload Identity — labels the pod so the mutating webhook
+# injects the projected service account token.
+deploymentTemplateLabels:
+  azure.workload.identity/use: "true"
+
+secretStore:
+  provider:
+    azurekv:
+      # Azure AD tenant ID.
+      tenantId: <your-tenant-id>
+      authType: WorkloadIdentity
+      # Full URL of the Key Vault (e.g. https://my-vault.vault.azure.net).
+      vaultUrl: "<your-key-vault-url>"
+      serviceAccountRef:
+        name: mcd-agent-service-account
+        namespace: mcd-agent
+
+tokenSecret:
+  remoteRef:
+    # Name of the Key Vault secret containing {"mcd_id": "...", "mcd_token": "..."}.
+    key: <your-token-secret-name>
+
+# Optional: integration credentials stored as separate secrets in Key Vault.
+# Each entry becomes a file at /etc/secrets/integrations/<secretKey>.
+# integrationsSecrets:
+#   data:
+#     - secretKey: my_integration.json
+#       remoteRef:
+#         key: <your-integration-secret-name>

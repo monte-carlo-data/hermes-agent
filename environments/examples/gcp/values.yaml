@@ -1,0 +1,50 @@
+# Example values for deploying the Hermes Agent on GCP GKE
+# Copy this file and replace all <your-...> placeholders with your actual values.
+# Resources referenced here (GCS bucket, IAM service account, Secret Manager secret)
+# should be created before deploying. See:
+#   - Public docs: https://docs.getmontecarlo.com/docs/gcp-gke
+#   - Terraform module: https://github.com/monte-carlo-data/terraform-google-mcd-k8s-agent
+#   - Helm chart README: helm/README.md
+namespace: mcd-agent
+replicaCount: 1
+
+image:
+  repository: montecarlodata/agent
+  pullPolicy: Always
+  tag: "latest-generic"
+
+container:
+  # Monte Carlo Agent Service URL — use the URL provided during onboarding.
+  backendServiceUrl: https://artemis.getmontecarlo.com
+  # Name of the GCS bucket created for agent storage.
+  storageBucketName: "<your-gcs-bucket-name>"
+  storageType: "GCS"
+
+serviceAccount:
+  annotations:
+    # Email of the GCP service account bound via Workload Identity.
+    iam.gke.io/gcp-service-account: <your-service-account>@<your-project-id>.iam.gserviceaccount.com
+
+secretStore:
+  provider:
+    gcpsm:
+      # GCP project ID where Secret Manager secrets are stored.
+      projectID: <your-project-id>
+      auth:
+        workloadIdentity:
+          serviceAccountRef:
+            namespace: mcd-agent
+            name: mcd-agent-service-account
+
+tokenSecret:
+  remoteRef:
+    # Name of the Secret Manager secret containing {"mcd_id": "...", "mcd_token": "..."}.
+    key: <your-secret-name>
+
+# Optional: integration credentials stored as separate secrets in Secret Manager.
+# Each entry becomes a file at /etc/secrets/integrations/<secretKey>.
+# integrationsSecrets:
+#   data:
+#     - secretKey: my_integration.json
+#       remoteRef:
+#         key: <your-integration-secret-name>
