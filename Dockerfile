@@ -1,10 +1,5 @@
 FROM montecarlodata/agent:latest-generic AS base
 
-# Web server env var configuration
-ENV GUNICORN_WORKERS=1
-ENV GUNICORN_THREADS=1
-ENV GUNICORN_TIMEOUT=0
-
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
 
@@ -19,6 +14,7 @@ COPY requirements.txt ./
 RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir --force-reinstall -r requirements.txt
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
+COPY gunicorn.conf.py ./
 COPY hermes/ ./hermes
 
 ARG code_version="local"
@@ -40,4 +36,4 @@ FROM base AS hermes-generic
 
 WORKDIR $APP_HOME
 
-CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && gunicorn --bind :$PORT --workers $GUNICORN_WORKERS --threads $GUNICORN_THREADS --timeout $GUNICORN_TIMEOUT hermes.agent.main:app"]
+CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && exec gunicorn --config gunicorn.conf.py --bind :$PORT hermes.agent.main:app"]
