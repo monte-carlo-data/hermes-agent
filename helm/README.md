@@ -25,20 +25,92 @@ helm install external-secrets external-secrets/external-secrets -n external-secr
 
 # Deploy the agent
 helm upgrade --install mcd-agent ./helm \
-  -f environments/dev/values_az_fw.yaml \
+  -f environments/examples/azure/values.yaml \
   -n mcd-agent --create-namespace
 ```
 
+## Cloud Platform Setup
+
+Each cloud platform requires specific resources and identity configuration before deploying the agent. This section covers the prerequisites — ESO installation and the `helm upgrade` deployment command are covered in [Quick Start](#quick-start).
+
+### AWS (EKS)
+
+**Prerequisites:**
+- An S3 bucket for agent storage
+- An AWS Secrets Manager secret containing `{"mcd_id": "...", "mcd_token": "..."}`
+- An IAM role granting the ESO service account access to Secrets Manager
+
+**Identity/Auth (IRSA):**
+- The chart's `secretStore.provider.aws.role` must be set to the IAM role ARN that can read Secrets Manager secrets
+- The IAM role's trust policy must allow the EKS cluster's OIDC provider to assume it from the `mcd-agent-service-account` service account in the `mcd-agent` namespace
+
+**Storage:**
+- The IAM role (or a separate role attached to the node instance profile) needs `s3:GetObject`, `s3:PutObject`, and `s3:ListBucket` on the storage bucket
+
+### Azure (AKS)
+
+**Prerequisites:**
+- An Azure Key Vault with a secret containing `{"mcd_id": "...", "mcd_token": "..."}`
+- A User Assigned Managed Identity with "Get" access to Key Vault secrets
+- An Azure Storage Account with a blob container
+- AKS cluster with OIDC issuer and Workload Identity enabled
+
+**Identity/Auth (Workload Identity):**
+- Create a federated credential on the managed identity, trusting the AKS OIDC issuer for subject `system:serviceaccount:mcd-agent:mcd-agent-service-account`:
+  ```bash
+  az identity federated-credential create \
+    --name "kubernetes-federated-credential" \
+    --identity-name "<identity-name>" \
+    --resource-group "<resource-group>" \
+    --issuer "$(az aks show -n <cluster> -g <rg> --query oidcIssuerProfile.issuerUrl -o tsv)" \
+    --subject "system:serviceaccount:mcd-agent:mcd-agent-service-account"
+  ```
+- Set the managed identity's client ID in the values file:
+  ```yaml
+  serviceAccount:
+    annotations:
+      azure.workload.identity/client-id: <client-id>
+  deploymentTemplateLabels:
+    azure.workload.identity/use: "true"
+  ```
+
+**Storage:**
+- Grant the managed identity the "Storage Blob Data Contributor" role on the storage account or container
+
+### GCP (GKE)
+
+**Prerequisites:**
+- A GCS bucket for agent storage
+- A Google Secret Manager secret containing `{"mcd_id": "...", "mcd_token": "..."}`
+- A GCP IAM service account with `roles/secretmanager.secretAccessor`
+- GKE cluster with Workload Identity enabled
+
+**Identity/Auth (Workload Identity):**
+- Bind the GCP service account to the Kubernetes service account:
+  ```bash
+  gcloud iam service-accounts add-iam-policy-binding "<sa-email>" \
+    --role="roles/iam.workloadIdentityUser" \
+    --member="serviceAccount:<project-id>.svc.id.goog[mcd-agent/mcd-agent-service-account]"
+  ```
+- Set the GCP service account annotation in the values file:
+  ```yaml
+  serviceAccount:
+    annotations:
+      iam.gke.io/gcp-service-account: <sa-email>
+  ```
+
+**Storage:**
+- Grant the service account "Storage Object Admin" and "Storage Bucket Viewer (Beta)" roles on the GCS bucket (`storage.objects.*` and `storage.buckets.get` are both required)
+
 ## Configuration
 
-The chart is configured via values files. See the dev environment files for working examples:
+The chart is configured via values files. See the example files for each platform:
 
 | File | Environment | Notes |
 |---|---|---|
-| `environments/dev/values_aws.yaml` | AWS EKS | S3 storage, AWS Secrets Manager |
-| `environments/dev/values_az.yaml` | Azure AKS | Azure Blob storage, Key Vault |
-| `environments/dev/values_az_fw.yaml` | Azure AKS + Firewall | Same as above with firewall CA |
-| `environments/dev/values_gke.yaml` | GCP GKE | GCS storage, Google Secret Manager |
+| `environments/examples/aws/values.yaml` | AWS EKS | S3 storage, AWS Secrets Manager |
+| `environments/examples/azure/values.yaml` | Azure AKS | Azure Blob storage, Key Vault |
+| `environments/examples/gcp/values.yaml` | GCP GKE | GCS storage, Google Secret Manager |
 | `environments/local/values.yaml` | Local (kind/k3s) | MinIO storage, manual secrets |
 
 ### Core Values
