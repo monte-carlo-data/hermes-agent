@@ -1,10 +1,7 @@
 version: 2.1
 
 orbs:
-  aws-cli: circleci/aws-cli@5.3.2
-  azure-cli: circleci/azure-cli@1.2.2
   docker: circleci/docker@2.2.0
-  gcp-cli: circleci/gcp-cli@3.3.2
   helm: circleci/helm@3.2.0
 
 defaults:
@@ -58,68 +55,6 @@ commands:
 
           wget https://github.com/mikefarah/yq/releases/download/${VERSION}/yq_${PLATFORM}.tar.gz -O - | tar xz
           sudo mv yq_${PLATFORM} /usr/local/bin/yq
-  update_helm_chart:
-    parameters:
-      docker_hub_repository_image:
-        type: string
-      docker_hub_repository_chart:
-        type: string
-      code_version:
-        type: string
-      values_file:
-        type: string
-      cluster_name:
-        type: string
-    steps:
-      - *install_helm_client
-      - install_yq
-      - run:
-          name: Update version in values file
-          command: |
-            echo repo: << parameters.docker_hub_repository_image >>
-            echo version: << parameters.code_version >>
-            echo values file: << parameters.values_file >>
-            echo
-            # the value for the parameter is the shell expression, like ${VERSION}, we need to evaluate it first
-            export VERSION=<< parameters.code_version >>
-            yq eval '.image.repository = "montecarlodata/<< parameters.docker_hub_repository_image >>"' -i << parameters.values_file >>
-            yq eval '.image.tag = (strenv(VERSION) + "-generic")' -i << parameters.values_file >>
-            echo
-            echo << parameters.values_file >>:
-            cat << parameters.values_file >>
-      - run:
-          name: Upgrade Kubernetes Cluster with Helm
-          command: |
-            export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
-            helm upgrade --install << parameters.cluster_name >> oci://registry-1.docker.io/montecarlodata/<< parameters.docker_hub_repository_chart >> --version ${CHART_VERSION} -f << parameters.values_file >>
-  gcp_cli_setup:
-    parameters:
-      gcp_creds_config_file:
-        type: string
-      gcp_project:
-        type: string
-    steps:
-      - gcp-cli/install
-      - run:
-          name: GCP Auth
-          command: |
-            if [ -z "$CIRCLE_OIDC_TOKEN" ]; then
-              echo "OIDC token not found, ensure this job has a context to populate OIDC token"
-              exit 1
-            fi
-            echo "$CIRCLE_OIDC_TOKEN" > CIRCLE_OIDC_TOKEN_FILE
-            gcloud auth login --brief --cred-file=<< parameters.gcp_creds_config_file >>
-            echo "export GOOGLE_APPLICATION_CREDENTIALS=<< parameters.gcp_creds_config_file >>" >> $BASH_ENV
-            source $BASH_ENV
-            echo "Setting GCP project"
-            gcloud config set project << parameters.gcp_project >>
-            echo "Getting GKE clusters" # to test the authentication
-            gcloud container clusters list
-      - run:
-          name: Install Kubernetes Plugins
-          command: |
-            gcloud components install kubectl
-            gcloud components install gke-gcloud-auth-plugin
 jobs:
   run-linter:
     docker:
@@ -211,108 +146,41 @@ jobs:
           command: |
             export CHART_VERSION="$(echo << parameters.code_version >> | sed 's/rc/-rc/')"
             helm push << parameters.docker_hub_repository >>-${CHART_VERSION}.tgz oci://registry-1.docker.io/montecarlodata
-  update-kubernetes-aws-cluster:
-    machine:
-      image: ubuntu-2204:current
+  trigger-deploy:
+    docker:
+      - image: cimg/base:current
     parameters:
-      docker_hub_repository_chart:
+      env-type:
+        type: enum
+        enum: [dev, prod]
+      hermes-version:
         type: string
-      docker_hub_repository_image:
+      hermes-chart-repo:
         type: string
-      code_version:
+      hermes-image-repo:
         type: string
-      cluster_name:
+      # Target branch in data-collector repo. Use a feature branch for testing,
+      # set to "main" for production use.
+      target-branch:
         type: string
-      values_file:
-        type: string
-      aws_region:
-        type: string
-      aws_role_arn:
-        type: string
+        default: "main"
     steps:
-      - aws-cli/setup:
-          role_arn: << parameters.aws_role_arn >>
       - run:
-          name: Configure EKS Cluster Access
+          name: Trigger Hermes agent deployment in data-collector
           command: |
-            aws eks --region << parameters.aws_region >> update-kubeconfig --name << parameters.cluster_name >>
-      - update_helm_chart:
-          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
-          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
-          code_version: << parameters.code_version >>
-          values_file: << parameters.values_file >>
-          cluster_name: << parameters.cluster_name >>
-  update-kubernetes-azure-cluster:
-    machine:
-      image: ubuntu-2204:current
-    parameters:
-      docker_hub_repository_chart:
-        type: string
-      docker_hub_repository_image:
-        type: string
-      code_version:
-        type: string
-      values_file:
-        type: string
-      resource_group:
-        type: string
-      cluster_name:
-        type: string
-    steps:
-      - checkout
-      - azure-cli/install
-      - run:
-          name: Azure login
-          command: |
-            az login --service-principal --user "${AZURE_CLIENT_ID}" --tenant "${AZURE_TENANT_ID}" --federated-token "${CIRCLE_OIDC_TOKEN}"
-      - run: az account show
-      - run:
-          name: Configure AKS Cluster
-          command: |
-            az aks get-credentials --resource-group << parameters.resource_group >> --name << parameters.cluster_name >>
-      - update_helm_chart:
-          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
-          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
-          code_version: << parameters.code_version >>
-          values_file: << parameters.values_file >>
-          cluster_name: << parameters.cluster_name >>
-  update-kubernetes-gcp-cluster:
-    machine:
-      image: ubuntu-2204:current
-    parameters:
-      docker_hub_repository_chart:
-        type: string
-      docker_hub_repository_image:
-        type: string
-      code_version:
-        type: string
-      values_file:
-        type: string
-      cluster_name:
-        type: string
-      region:
-        type: string
-      gcp_creds_config_file:
-        type: string
-      gcp_project:
-        type: string
-      gke_cluster_name:
-        type: string
-    steps:
-      - checkout
-      - gcp_cli_setup:
-          gcp_creds_config_file: << parameters.gcp_creds_config_file >>
-          gcp_project: << parameters.gcp_project >>
-      - run:
-          name: Configure GKE Cluster
-          command: |
-            gcloud container clusters get-credentials << parameters.gke_cluster_name >> --region << parameters.region >>
-      - update_helm_chart:
-          docker_hub_repository_chart: << parameters.docker_hub_repository_chart >>
-          docker_hub_repository_image: << parameters.docker_hub_repository_image >>
-          code_version: << parameters.code_version >>
-          values_file: << parameters.values_file >>
-          cluster_name: << parameters.cluster_name >>
+            curl -f -X POST "https://circleci.com/api/v2/project/gh/monte-carlo-data/data-collector/pipeline" \
+              -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "branch": "<< parameters.target-branch >>",
+                "parameters": {
+                  "action": "deploy-hermes-agent",
+                  "env-type": "<< parameters.env-type >>",
+                  "hermes-version": "<< parameters.hermes-version >>",
+                  "hermes-chart-repo": "<< parameters.hermes-chart-repo >>",
+                  "hermes-image-repo": "<< parameters.hermes-image-repo >>"
+                }
+              }'
 workflows:
   version: 2
 
@@ -372,20 +240,18 @@ workflows:
             - docker
           requires:
             - build-and-push-dev
-      - update-kubernetes-aws-cluster:
-          name: update-kubernetes-aws-cluster-dev
-          docker_hub_repository_chart: pre-release-generic-agent-helm
-          docker_hub_repository_image: pre-release-agent
-          cluster_name: hermes-agent-dev
-          values_file: ./environments/dev/values_aws.yaml
-          code_version: ${NEXT_VERSION}
-          aws_region: us-west-2
-          aws_role_arn: arn:aws:iam::REDACTED_AWS_ACCOUNT_ID:role/mc-circleci
+      - trigger-deploy:
+          name: trigger-deploy-dev
+          env-type: dev
+          hermes-version: ${NEXT_VERSION}
+          hermes-chart-repo: pre-release-generic-agent-helm
+          hermes-image-repo: pre-release-agent
+          target-branch: mrostan/hermes-circleci-deploy  # TODO: remove this line after testing (default is "main")
           pre-steps:
             - checkout
             - generate-version-number-dev
           context:
-            - docker
+            - circleci-secret
           requires:
             - build-and-push-helm-chart-dev
       - build-and-push-helm-chart:
@@ -402,36 +268,21 @@ workflows:
           filters:
             tags:
               only: /.*/
-      - update-kubernetes-azure-cluster:
-          name: update-kubernetes-azure-cluster-dev
-          docker_hub_repository_chart: pre-release-generic-agent-helm
-          docker_hub_repository_image: pre-release-agent
-          values_file: ./environments/dev/values_az.yaml
-          code_version: ${NEXT_VERSION}
-          resource_group: agent-aks-test
-          cluster_name: hermes-agent-dev
+      - trigger-deploy:
+          name: trigger-deploy-prod
+          env-type: prod
+          hermes-version: ${VERSION_TAG}
+          hermes-chart-repo: generic-agent-helm
+          hermes-image-repo: agent
           pre-steps:
             - checkout
-            - generate-version-number-dev
+            - generate-version-number-prod
           context:
-            - az-sandbox
+            - circleci-secret
           requires:
-            - build-and-push-helm-chart-dev
-      - update-kubernetes-gcp-cluster:
-          name: update-kubernetes-gcp-cluster-dev
-          docker_hub_repository_chart: pre-release-generic-agent-helm
-          docker_hub_repository_image: pre-release-agent
-          gke_cluster_name: mcd-agent-cluster
-          cluster_name: hermes-agent-dev
-          region: us-central1
-          values_file: ./environments/dev/values_gke.yaml
-          gcp_creds_config_file: ./environments/dev/gcp/gcp_creds_config_mc_sandbox.json
-          gcp_project: REDACTED_GCP_PROJECT
-          code_version: ${NEXT_VERSION}
-          pre-steps:
-            - checkout
-            - generate-version-number-dev
-          context:
-            - docker
-          requires:
-            - build-and-push-helm-chart-dev
+            - build-and-push-helm-chart-prod
+          filters:
+            tags:
+              only: /^v.*/
+            branches:
+              ignore: /.*/
