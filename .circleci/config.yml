@@ -157,11 +157,6 @@ jobs:
         type: string
       hermes-image-repo:
         type: string
-      # Target branch in data-collector repo. Use a feature branch for testing,
-      # set to "main" for production use.
-      target-branch:
-        type: string
-        default: "main"
     steps:
       - run:
           name: Trigger Hermes agent deployment in data-collector
@@ -174,9 +169,9 @@ jobs:
               -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{
-                "branch": "<< parameters.target-branch >>",
+                "definition_id": "REDACTED_PIPELINE_DEFINITION_ID",
+                "branch": "main",
                 "parameters": {
-                  "action": "deploy-hermes-agent",
                   "env-type": "<< parameters.env-type >>",
                   "hermes-version": "'"${HERMES_VERSION}"'",
                   "hermes-chart-repo": "<< parameters.hermes-chart-repo >>",
