@@ -247,7 +247,6 @@ workflows:
           env-type: dev
           hermes-chart-repo: pre-release-generic-agent-helm
           hermes-image-repo: pre-release-agent
-          target-branch: mrostan/hermes-circleci-deploy  # TODO: remove this line after testing (default is "main")
           pre-steps:
             - checkout
             - generate-version-number-dev
