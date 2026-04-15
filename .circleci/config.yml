@@ -170,7 +170,7 @@ jobs:
               -H "Content-Type: application/json" \
               -d '{
                 "definition_id": "REDACTED_PIPELINE_DEFINITION_ID",
-                "branch": "main",
+                "branch": "mrostan/hermes-circleci-deploy",
                 "parameters": {
                   "env-type": "<< parameters.env-type >>",
                   "hermes-version": "'"${HERMES_VERSION}"'",
