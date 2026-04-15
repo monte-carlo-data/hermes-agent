@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Dict, Any, Callable, Tuple
+from typing import Dict, Any, Callable, Optional, Tuple
 
 from apollo.agent.agent import Agent
 from apollo.agent.logging_utils import LoggingUtils
@@ -33,6 +33,7 @@ class OnPremService(BaseEgressAgentService):
         self,
         config_manager: ConfigurationManager,
         logging_utils: LoggingUtils,
+        instance_id: Optional[str] = None,
     ):
         logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
         if _MCD_TOKEN_FILE_PATH:
@@ -53,6 +54,7 @@ class OnPremService(BaseEgressAgentService):
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
+            instance_id=instance_id,
         )
         self._agent = Agent(logging_utils)
 

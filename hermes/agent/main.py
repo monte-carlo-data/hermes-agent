@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import uuid
 
 from flask import Flask
 from flask import make_response
@@ -11,7 +12,8 @@ from apollo.egress.agent.config.config_manager import ConfigurationManager
 from apollo.egress.agent.config.local_config import LocalConfig
 from apollo.egress.agent.utils.utils import enable_tcp_keep_alive, init_logging
 
-init_logging()
+instance_id = str(uuid.uuid4())
+init_logging(instance_id=instance_id)
 logger = logging.getLogger(__name__)
 
 from hermes.agent.service.on_prem_service import OnPremService
@@ -30,6 +32,7 @@ logging_utils = LoggingUtils()
 service = OnPremService(
     config_manager=ConfigurationManager(persistence=LocalConfig(prefix="MCD")),
     logging_utils=logging_utils,
+    instance_id=instance_id,
 )
 
 
