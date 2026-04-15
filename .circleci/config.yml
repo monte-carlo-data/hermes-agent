@@ -153,8 +153,6 @@ jobs:
       env-type:
         type: enum
         enum: [dev, prod]
-      hermes-version:
-        type: string
       hermes-chart-repo:
         type: string
       hermes-image-repo:
@@ -168,6 +166,10 @@ jobs:
       - run:
           name: Trigger Hermes agent deployment in data-collector
           command: |
+            # Version is set in BASH_ENV by generate-version-number-dev (NEXT_VERSION)
+            # or generate-version-number-prod (VERSION_TAG) in pre-steps.
+            HERMES_VERSION="${NEXT_VERSION:-${VERSION_TAG}}"
+            echo "Triggering deploy for version: ${HERMES_VERSION}"
             curl -f -X POST "https://circleci.com/api/v2/project/gh/monte-carlo-data/data-collector/pipeline" \
               -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
               -H "Content-Type: application/json" \
@@ -176,7 +178,7 @@ jobs:
                 "parameters": {
                   "action": "deploy-hermes-agent",
                   "env-type": "<< parameters.env-type >>",
-                  "hermes-version": "<< parameters.hermes-version >>",
+                  "hermes-version": "'"${HERMES_VERSION}"'",
                   "hermes-chart-repo": "<< parameters.hermes-chart-repo >>",
                   "hermes-image-repo": "<< parameters.hermes-image-repo >>"
                 }
@@ -243,7 +245,6 @@ workflows:
       - trigger-deploy:
           name: trigger-deploy-dev
           env-type: dev
-          hermes-version: ${NEXT_VERSION}
           hermes-chart-repo: pre-release-generic-agent-helm
           hermes-image-repo: pre-release-agent
           target-branch: mrostan/hermes-circleci-deploy  # TODO: remove this line after testing (default is "main")
@@ -271,7 +272,6 @@ workflows:
       - trigger-deploy:
           name: trigger-deploy-prod
           env-type: prod
-          hermes-version: ${VERSION_TAG}
           hermes-chart-repo: generic-agent-helm
           hermes-image-repo: agent
           pre-steps:
