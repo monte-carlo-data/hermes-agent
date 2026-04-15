@@ -165,12 +165,18 @@ jobs:
             # or generate-version-number-prod (VERSION_TAG) in pre-steps.
             HERMES_VERSION="${NEXT_VERSION:-${VERSION_TAG}}"
             echo "Triggering deploy for version: ${HERMES_VERSION}"
-            curl -f -X POST "https://circleci.com/api/v2/project/gh/monte-carlo-data/data-collector/pipeline" \
+            DEPLOY_BRANCH="mrostan/hermes-circleci-deploy"  # TODO: change to "main" after testing
+            curl -f -X POST "https://circleci.com/api/v2/project/github/monte-carlo-data/data-collector/pipeline/run" \
               -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{
                 "definition_id": "REDACTED_PIPELINE_DEFINITION_ID",
-                "branch": "mrostan/hermes-circleci-deploy",
+                "config": {
+                  "branch": "'"${DEPLOY_BRANCH}"'"
+                },
+                "checkout": {
+                  "branch": "'"${DEPLOY_BRANCH}"'"
+                },
                 "parameters": {
                   "env-type": "<< parameters.env-type >>",
                   "hermes-version": "'"${HERMES_VERSION}"'",
