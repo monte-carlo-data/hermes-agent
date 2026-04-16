@@ -2,6 +2,9 @@ FROM montecarlodata/agent:latest-generic AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
+# JSON log format for structured logging (parsed by fluentd sidecar)
+# Override with MCD_LOG_FORMAT=text for local development
+ENV MCD_LOG_FORMAT=json
 
 ENV APP_HOME=/app
 ENV VENV_DIR=.venv

@@ -38,25 +38,40 @@ data:
       </parse>
     </source>
 
+    # Parse agent's JSON log output from record["log"] into individual fields.
+    # After this step, record has: ts, level, logger, msg, instance_id, etc.
+    <filter kubernetes.**>
+      @type parser
+      key_name log
+      reserve_data false
+      <parse>
+        @type json
+      </parse>
+    </filter>
+
     {{- if .Values.logsCollector.logLevel | default "WARN|WARNING|ERROR|CRITICAL" }}
-    # Drop log lines that don't match the configured log level filter
+    # Drop log lines that don't match the configured log level filter.
+    # Uses the parsed "level" field from the agent's JSON output.
     <filter kubernetes.**>
       @type grep
       <regexp>
-        key log
+        key level
         pattern /{{ .Values.logsCollector.logLevel | default "WARN|WARNING|ERROR|CRITICAL" }}/i
       </regexp>
     </filter>
     {{- end }}
 
-    # Rename fields to match the logs API: {"timestamp": "...", "message": "..."}
+    # Reshape record to match the orchestrator's logs API format.
+    # Maps agent JSON fields to {timestamp, message, ...} and passes
+    # instance_id through for Datadog tagging.
     <filter kubernetes.**>
       @type record_transformer
       enable_ruby true
       renew_record true
       <record>
-        timestamp ${time.strftime('%Y-%m-%dT%H:%M:%S.%6N%z')}
-        message ${record["log"].to_s}
+        timestamp ${record["ts"] || time.strftime('%Y-%m-%dT%H:%M:%S.%6N%z')}
+        message ${record["msg"] || record["log"] || ""}
+        instance_id ${record["instance_id"] || ""}
       </record>
     </filter>
 
