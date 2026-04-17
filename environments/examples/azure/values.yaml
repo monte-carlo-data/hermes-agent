@@ -6,7 +6,7 @@
 #   - Terraform module: https://github.com/monte-carlo-data/terraform-azurerm-mcd-k8s-agent
 #   - Helm chart README: helm/README.md
 namespace: mcd-agent
-replicaCount: 1
+replicaCount: 2
 
 image:
   repository: montecarlodata/agent
