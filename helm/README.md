@@ -126,8 +126,44 @@ The chart is configured via values files. See the example files for each platfor
 | `container.storageAccountName` | Azure storage account name | _(Azure only)_ |
 | `container.opsRunnerThreadCount` | Concurrent operation threads | `"18"` |
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
+| `container.resources` | Pod CPU/memory requests and limits | `{}` (cluster defaults) |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
-| `replicaCount` | Agent replicas | `1` |
+| `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `1` |
+
+### Resource Requests and Limits
+
+By default the agent container ships with no `resources` block, so the pod runs with whatever the cluster's default LimitRange provides. To pin CPU/memory, set `container.resources`:
+
+```yaml
+container:
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
+```
+
+Requests must be set if you plan to enable autoscaling — HPA computes utilization against requests.
+
+### Autoscaling
+
+The chart can render a `HorizontalPodAutoscaler` that scales the agent deployment based on CPU (and optionally memory) utilization.
+
+| Property | Description | Default |
+|---|---|---|
+| `autoscaling.enabled` | Render the HPA | `false` |
+| `autoscaling.minReplicas` | Lower bound on replicas | `1` |
+| `autoscaling.maxReplicas` | Upper bound on replicas | `5` |
+| `autoscaling.targetCPUUtilizationPercentage` | Target CPU utilization (%) | `70` |
+| `autoscaling.targetMemoryUtilizationPercentage` | Target memory utilization (%) | `null` (CPU-only) |
+
+Prerequisites:
+- `container.resources.requests` must be set (CPU and/or memory matching the HPA target).
+- `metrics-server` must be installed in the cluster (standard in EKS/AKS/GKE).
+
+When `autoscaling.enabled` is `true`, the Deployment omits `replicas:` so the HPA fully owns the replica count.
 
 ### Secret Store
 
@@ -146,6 +182,7 @@ A Fluentd DaemonSet that tails agent container logs and forwards them to the orc
 | `logsCollector.buffer.flushInterval` | `5m` |
 | `logsCollector.buffer.chunkLimitSize` | `8MB` |
 | `logsCollector.buffer.totalLimitSize` | `512MB` |
+| `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
 ### Metrics Collector
 
@@ -157,6 +194,7 @@ An OpenTelemetry Collector DaemonSet that scrapes container CPU and memory metri
 | `metricsCollector.collectionIntervalSeconds` | `300` |
 | `metricsCollector.image.repository` | `otel/opentelemetry-collector-k8s` |
 | `metricsCollector.image.tag` | `0.147.0` |
+| `metricsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
 ### Firewall TLS Inspection Support
 

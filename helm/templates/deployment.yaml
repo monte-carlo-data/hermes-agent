@@ -4,7 +4,9 @@ metadata:
   name: mcd-agent-deployment
   namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels: 
       app: mcd-agent
@@ -47,6 +49,10 @@ spec:
               port: {{ .Values.container.port | default 8080 }}
             initialDelaySeconds: 10
             periodSeconds: 10
+          {{- with .Values.container.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             - name: PORT
               value: {{ .Values.container.port | default 8080 | quote }}
