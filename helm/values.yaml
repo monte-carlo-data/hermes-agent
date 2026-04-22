@@ -27,7 +27,7 @@ container:
 # replicas.
 autoscaling:
   enabled: false
-  minReplicas: 1
+  minReplicas: 2
   maxReplicas: 5
   targetCPUUtilizationPercentage: 70
   # Optional — leave null to autoscale on CPU only.

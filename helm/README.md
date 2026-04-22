@@ -154,7 +154,7 @@ The chart can render a `HorizontalPodAutoscaler` that scales the agent deploymen
 | Property | Description | Default |
 |---|---|---|
 | `autoscaling.enabled` | Render the HPA | `false` |
-| `autoscaling.minReplicas` | Lower bound on replicas | `1` |
+| `autoscaling.minReplicas` | Lower bound on replicas | `2` |
 | `autoscaling.maxReplicas` | Upper bound on replicas | `5` |
 | `autoscaling.targetCPUUtilizationPercentage` | Target CPU utilization (%) | `70` |
 | `autoscaling.targetMemoryUtilizationPercentage` | Target memory utilization (%) | `null` (CPU-only) |
