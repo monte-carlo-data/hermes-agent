@@ -165,7 +165,12 @@ jobs:
             # or generate-version-number-prod (VERSION_TAG) in pre-steps.
             HERMES_VERSION="${NEXT_VERSION:-${VERSION_TAG}}"
             echo "Triggering deploy for version: ${HERMES_VERSION}"
-            DEPLOY_BRANCH="main"
+            if [ "<< parameters.env-type >>" = "dev" ]; then
+              DEPLOY_BRANCH="dev"
+            else
+              DEPLOY_BRANCH="main"
+            fi
+            echo "Using data-collector branch: ${DEPLOY_BRANCH}"
             curl -f -X POST "https://circleci.com/api/v2/project/github/monte-carlo-data/data-collector/pipeline/run" \
               -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
               -H "Content-Type: application/json" \

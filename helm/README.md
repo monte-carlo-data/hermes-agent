@@ -127,7 +127,7 @@ The chart is configured via values files. See the example files for each platfor
 | `container.opsRunnerThreadCount` | Concurrent operation threads | `"18"` |
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
-| `replicaCount` | Agent replicas | `1` |
+| `replicaCount` | Agent replicas | `2` |
 
 ### Secret Store
 
