@@ -12,7 +12,7 @@ spec:
   minReplicas: {{ .Values.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
-    {{- if .Values.autoscaling.targetCPUUtilizationPercentage }}
+    {{- if not (kindIs "invalid" .Values.autoscaling.targetCPUUtilizationPercentage) }}
     - type: Resource
       resource:
         name: cpu
