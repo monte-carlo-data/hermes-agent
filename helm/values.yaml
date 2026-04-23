@@ -2,6 +2,8 @@
 # Environment-specific values files override these defaults.
 # Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
 
+replicaCount: 2
+
 image:
   repository: montecarlodata/agent
   pullPolicy: Always

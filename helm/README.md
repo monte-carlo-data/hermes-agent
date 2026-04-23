@@ -128,7 +128,7 @@ The chart is configured via values files. See the example files for each platfor
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
 | `container.resources` | Pod CPU/memory requests and limits | `{}` (cluster defaults) |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
-| `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `1` |
+| `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `2` |
 
 ### Resource Requests and Limits
 
