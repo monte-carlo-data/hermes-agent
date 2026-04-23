@@ -12,6 +12,28 @@ image:
 container:
   opsRunnerThreadCount: "18"
   publisherThreadCount: "3"
+  # Pod resource requests/limits. Leave empty ({}) to use cluster defaults.
+  # Must be set (at least requests) if autoscaling is enabled — HPA uses
+  # requests as the utilization baseline.
+  resources: {}
+    # requests:
+    #   cpu: "500m"
+    #   memory: "512Mi"
+    # limits:
+    #   cpu: "2"
+    #   memory: "2Gi"
+
+# Horizontal Pod Autoscaling for the agent deployment.
+# Requires container.resources.requests to be set and metrics-server installed
+# in the cluster. When enabled, replicaCount is ignored and the HPA manages
+# replicas.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  # Optional — leave null to autoscale on CPU only.
+  targetMemoryUtilizationPercentage: null
 
 logsCollector:
   enabled: true
@@ -31,6 +53,8 @@ logsCollector:
     totalLimitSize: "512MB"
     overflowAction: "block"
     retryMaxInterval: "30s"
+  # Pod resource requests/limits. Leave empty ({}) to use cluster defaults.
+  resources: {}
 
 # Firewall CA for TLS inspection environments.
 # Set firewallCa.cert (inline PEM) or firewallCa.externalSecretRef (secret store key name).
@@ -42,3 +66,5 @@ metricsCollector:
   image:
     repository: otel/opentelemetry-collector-k8s
     tag: "0.147.0"
+  # Pod resource requests/limits. Leave empty ({}) to use cluster defaults.
+  resources: {}

@@ -48,6 +48,10 @@ spec:
             - name: SSL_CERT_FILE
               value: /etc/ssl/combined-ca/ca-bundle.crt
             {{- end }}
+          {{- with .Values.logsCollector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: logs-collector-config
               mountPath: /fluentd/etc
