@@ -17,7 +17,7 @@ init_logging(instance_id=instance_id)
 logger = logging.getLogger(__name__)
 pod_name = os.getenv("K8S_POD_NAME")
 if pod_name:
-    logger.info("Agent running in Kubernetes", extra={"pod": pod_name})
+    logger.info(f"Agent running in Kubernetes, pod={pod_name}")
 
 from hermes.agent.service.on_prem_service import OnPremService
 
