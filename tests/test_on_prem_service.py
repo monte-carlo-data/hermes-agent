@@ -62,3 +62,18 @@ class OnPremServiceTests(TestCase):
             timeout_str="30",
             trace_id="5678",
         )
+
+    @patch("hermes.agent.service.on_prem_service.Agent.get_connection_manifests")
+    def test_connection_manifests(self, get_manifests_mock):
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="9012",
+                event={
+                    "path": "/api/v1/agent/custom-connectors/manifests",
+                    "operation": {
+                        "trace_id": "9012",
+                    },
+                },
+            )
+        )
+        get_manifests_mock.assert_called_once_with("9012")
