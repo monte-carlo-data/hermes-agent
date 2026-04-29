@@ -25,6 +25,7 @@ _BACKEND_SERVICE_URL = os.getenv(
 _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
+_CUSTOM_CONNECTORS_TYPES_PATH = "/api/v1/agent/custom-connectors/types"
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,13 @@ class OnPremService(BaseEgressAgentService):
                 path=_CUSTOM_CONNECTORS_MANIFESTS_PATH,
                 matching_type=OperationMatchingType.EQUALS,
                 method=self._execute_connection_manifests,
+            )
+        )
+        self._operations_mapping.append(
+            OperationMapping(
+                path=_CUSTOM_CONNECTORS_TYPES_PATH,
+                matching_type=OperationMatchingType.EQUALS,
+                method=self._execute_custom_connector_types,
             )
         )
 
@@ -170,6 +178,21 @@ class OnPremService(BaseEgressAgentService):
                 operation.get("trace_id") if isinstance(operation, dict) else None
             )
             response = self._agent.get_connection_manifests(trace_id)
+            self._schedule_push_results(operation_id, response.result)
+        except Exception as ex:
+            self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    def _execute_custom_connector_types(
+        self,
+        operation_id: str,
+        event: Dict[str, Any],
+    ):
+        try:
+            operation = event.get("operation")
+            trace_id = (
+                operation.get("trace_id") if isinstance(operation, dict) else None
+            )
+            response = self._agent.get_custom_connector_types(trace_id)
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
