@@ -77,3 +77,18 @@ class OnPremServiceTests(TestCase):
             )
         )
         get_manifests_mock.assert_called_once_with("9012")
+
+    @patch("hermes.agent.service.on_prem_service.Agent.get_supported_connector_types")
+    def test_supported_connector_types(self, get_types_mock):
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="3456",
+                event={
+                    "path": "/api/v1/agent/connectors/types",
+                    "operation": {
+                        "trace_id": "3456",
+                    },
+                },
+            )
+        )
+        get_types_mock.assert_called_once_with("3456")
