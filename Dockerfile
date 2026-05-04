@@ -1,4 +1,8 @@
-FROM montecarlodata/agent:latest-generic AS base
+# TEMPORARY: pinned to a pre-release dev build of apollo-agent until the
+# `generic-base` tag is published to the production `montecarlodata/agent`
+# repo. Swap to montecarlodata/agent:<v1.5.X>-generic-base once apollo-agent
+# PR #281 merges and a prod release cuts the corresponding tag.
+FROM montecarlodata/pre-release-agent:1.5.2rc2632-generic-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
