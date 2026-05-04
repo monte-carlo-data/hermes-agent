@@ -153,7 +153,9 @@ containerSecurityContext:
     type: RuntimeDefault
 ```
 
-> Note: The bundled `logs-collector` (fluentd) and `metrics-collector` (otel) DaemonSets read host paths (`/var/log/pods`, kubelet) and may run with elevated privileges. They are out of scope for the agent container's security context.
+The bundled `metrics-collector` daemonset is also hardened: the upstream `otel/opentelemetry-collector-k8s` image is distroless and bakes `USER 10001:10001`, so the chart applies a matching pod-level securityContext (`runAsNonRoot: true`, UID/GID/fsGroup `10001`) and drops capabilities on both the init and main containers. Override via `metricsCollector.podSecurityContext` and `metricsCollector.containerSecurityContext`.
+
+> Note: The `logs-collector` (fluentd) daemonset is **not** hardened by default — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, which makes non-root operation cluster-dependent. If your cluster enforces `runAsNonRoot` for daemonsets, set `logsCollector.enabled: false` and route agent logs through your existing logging stack (the agent emits structured JSON to stdout).
 
 ### Resource Requests and Limits
 

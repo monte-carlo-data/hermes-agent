@@ -86,3 +86,19 @@ metricsCollector:
     tag: "0.147.0"
   # Pod resource requests/limits. Leave empty ({}) to use cluster defaults.
   resources: {}
+  # Pod-level security context for the metrics-collector daemonset. The OTel
+  # k8s image bakes USER 10001:10001 — match it here so the busybox init
+  # container inherits the non-root UID, and fsGroup so the shared emptyDir
+  # is group-writable by 10001.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+  # Container-level security context applied to both the init and main
+  # containers in the metrics-collector daemonset.
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
