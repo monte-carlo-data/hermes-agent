@@ -127,8 +127,33 @@ The chart is configured via values files. See the example files for each platfor
 | `container.opsRunnerThreadCount` | Concurrent operation threads | `"18"` |
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
 | `container.resources` | Pod CPU/memory requests and limits | `{}` (cluster defaults) |
+| `podSecurityContext` | Pod-level security context | non-root, UID/GID 1000 (see [Pod Security](#pod-security)) |
+| `containerSecurityContext` | Agent container security context | privilege escalation off, all capabilities dropped |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
 | `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `2` |
+
+### Pod Security
+
+The agent image bakes a non-root user (`mcdagent`, UID/GID 1000) and the chart sets pod- and container-level security contexts that satisfy the common K8s hardening checks: `runAsNonRoot: true`, `runAsUser: 1000`, `runAsGroup: 1000`, `fsGroup: 1000`, `allowPrivilegeEscalation: false`, and `capabilities.drop: [ALL]`.
+
+`readOnlyRootFilesystem` is intentionally **off** by default — the agent writes temporary files (CA bundles, DB certs, git checkouts) under `/tmp` at runtime. Enabling it requires mounting an `emptyDir` at `/tmp`.
+
+Override the defaults to match your cluster's policies:
+
+```yaml
+podSecurityContext:
+  runAsUser: 2000
+  runAsGroup: 2000
+  fsGroup: 2000
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+> Note: The bundled `logs-collector` (fluentd) and `metrics-collector` (otel) DaemonSets read host paths (`/var/log/pods`, kubelet) and may run with elevated privileges. They are out of scope for the agent container's security context.
 
 ### Resource Requests and Limits
 

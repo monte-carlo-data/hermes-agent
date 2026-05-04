@@ -9,6 +9,24 @@ image:
   pullPolicy: Always
   tag: "latest-generic"
 
+# Pod-level security context. Defaults run the agent as a non-root user
+# (UID/GID 1000, baked into the image — see Dockerfile). fsGroup ensures
+# emptyDir / projected secret volumes are group-readable by the agent.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+# Container-level security context applied to the agent container.
+# readOnlyRootFilesystem is intentionally off — the agent writes temporary
+# files (CA bundles, DB certs, git checkouts) under /tmp at runtime.
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
 container:
   opsRunnerThreadCount: "18"
   publisherThreadCount: "3"

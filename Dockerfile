@@ -39,4 +39,12 @@ FROM base AS hermes-generic
 
 WORKDIR $APP_HOME
 
+# Run as non-root for clusters that enforce runAsNonRoot. UID/GID 1000 is
+# referenced by helm/values.yaml (podSecurityContext) — keep them in sync.
+RUN groupadd --gid 1000 mcdagent \
+    && useradd --uid 1000 --gid mcdagent --no-create-home --home-dir $APP_HOME --shell /usr/sbin/nologin mcdagent \
+    && chown -R mcdagent:mcdagent $APP_HOME
+
+USER mcdagent
+
 CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && exec gunicorn --config gunicorn.conf.py --bind :$PORT hermes.agent.main:app"]
