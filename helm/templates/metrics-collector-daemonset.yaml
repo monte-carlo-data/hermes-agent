@@ -31,7 +31,7 @@ spec:
         # to a shared file that the main container sources.
         - name: extract-credentials
           image: busybox:1.37
-          {{- with .Values.metricsCollector.containerSecurityContext }}
+          {{- with .Values.metricsCollector.initContainerSecurityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
