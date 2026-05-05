@@ -1,6 +1,4 @@
-# TEMPORARY: testing apollo-agent#283 (CVE bumps) in dev. Swap to
-# montecarlodata/agent:1.5.5-system-base once apollo PR merges and v1.5.5 is released.
-FROM montecarlodata/pre-release-agent:1.5.5rc2650-system-base AS base
+FROM montecarlodata/agent:1.5.5-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
