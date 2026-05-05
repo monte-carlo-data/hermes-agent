@@ -1,4 +1,6 @@
 agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.2
 # When bumping this version, also bump the corresponding `<version>-system-base`
 # image tag in the Dockerfile FROM so the runtime image matches the python pin.
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.5.4
+# TEMPORARY: testing the CVE bumps from apollo-agent#283 in dev.
+# Swap back to a versioned `@v1.5.5` tag once apollo merges and releases.
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@mrostan/bump-vulnerable-deps
