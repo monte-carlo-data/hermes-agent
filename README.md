@@ -83,21 +83,22 @@ docker build --pull --no-cache --target hermes-generic -t hermes-agent:local .
 
 When developing, you can point to a local repo (e.g. `agent-common`) to test your changes.
 The base image (`montecarlodata/agent:<version>-system-base`) contains only system-level
-dependencies (apt packages) — no pre-installed venv — so a `--build-context` is enough to
-pull in your local source.
+dependencies (apt packages) — no pre-installed venv — so passing your local source as a
+`--build-context` and copying it from the Dockerfile is enough.
 
-Update your Dockerfile with
-```
-# Copy local agent-common into the build context for an editable install.
-# Pass via: --build-context agent-common=../agent-common
-COPY --from=agent-common . /agent-common
-```
+1. Add this `COPY` to the Dockerfile so the build pulls in your local source:
 
-Rebuild your docker image
-```bash
-docker build --pull --no-cache --target hermes-generic -t hermes-agent:local \
-  --build-context agent-common=../agent-common .
-```
+   ```
+   # Copy local agent-common from the named build context for an editable install.
+   COPY --from=agent-common . /agent-common
+   ```
+
+2. Build the image, supplying the local repo path via `--build-context`:
+
+   ```bash
+   docker build --pull --no-cache --target hermes-generic -t hermes-agent:local \
+     --build-context agent-common=../agent-common .
+   ```
 
 ### Step 4 — Load the image into kind
 

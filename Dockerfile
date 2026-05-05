@@ -1,3 +1,5 @@
+# When bumping this tag, also bump the matching apollo Python pin in requirements.in
+# so the runtime apt deps and the venv-installed apollo source agree on the version.
 FROM montecarlodata/agent:1.5.4-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
@@ -25,9 +27,10 @@ RUN python -m venv $VENV_DIR
 
 COPY --chown=mcdagent:mcdagent requirements.txt ./
 RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
-# VULN-423: pip and setuptools must be upgraded post-install. Pin to floors that
-# patch the vulnerability. Idempotent — no-op if already at or above the floor.
-RUN . $VENV_DIR/bin/activate && pip install "pip>=26.1.0" "setuptools>=82.0.0"
+# VULN-423: pip and setuptools must be upgraded post-install. Exact-pinned for
+# reproducible builds and to bound supply-chain exposure on the upgrade step
+# itself; bump explicitly when picking up new patches.
+RUN . $VENV_DIR/bin/activate && pip install pip==26.1.1 setuptools==82.0.1
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY --chown=mcdagent:mcdagent gunicorn.conf.py ./

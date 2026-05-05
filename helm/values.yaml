@@ -81,7 +81,20 @@ logsCollector:
 
 # Firewall CA for TLS inspection environments.
 # Set firewallCa.cert (inline PEM) or firewallCa.externalSecretRef (secret store key name).
-firewallCa: {}
+firewallCa:
+  # Container-level security context for the build-ca-bundle init container.
+  # Explicit `runAsUser` is set so admission still passes if a caller's
+  # `podSecurityContext` is partially overridden (e.g. operator sets only
+  # fsGroup, dropping the pod-level runAsUser default).
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
 
 metricsCollector:
   enabled: true
@@ -100,10 +113,24 @@ metricsCollector:
     runAsUser: 10001
     runAsGroup: 10001
     fsGroup: 10001
-  # Container-level security context applied to both the init and main
-  # containers in the metrics-collector daemonset. seccompProfile
-  # RuntimeDefault is required for the K8s `restricted` Pod Security Standard.
+  # Container-level security context applied to the OTel main container.
+  # seccompProfile RuntimeDefault is required for the K8s `restricted` Pod
+  # Security Standard. Adding `readOnlyRootFilesystem: true` here is safe —
+  # the OTel collector only needs to write to the projected configmap and
+  # emptyDir mounts, which the kubelet permits regardless of root FS mode.
   containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  # Separate security context for the busybox extract-credentials init
+  # container. Defaults match `containerSecurityContext` so existing
+  # deployments behave identically — the split exists so operators can
+  # enable `readOnlyRootFilesystem: true` on the main container without
+  # breaking the init's writes to the shared `/shared` emptyDir.
+  initContainerSecurityContext:
     allowPrivilegeEscalation: false
     capabilities:
       drop:
