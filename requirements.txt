@@ -203,7 +203,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.26.2
     # via dataclasses-json
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.5.5
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.0
     # via -r requirements.in
 more-itertools==11.0.2
     # via simple-salesforce
