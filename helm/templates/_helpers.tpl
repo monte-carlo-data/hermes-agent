@@ -24,6 +24,8 @@ Used by the agent deployment and both collector daemonsets.
     capabilities:
       drop:
         - ALL
+    seccompProfile:
+      type: RuntimeDefault
   command:
     - sh
     - -c
