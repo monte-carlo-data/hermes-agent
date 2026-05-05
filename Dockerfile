@@ -1,8 +1,7 @@
-# TEMPORARY: pinned to a pre-release dev build of apollo-agent until the
-# `generic-base` tag is published to the production `montecarlodata/agent`
-# repo. Swap to montecarlodata/agent:<v1.5.X>-generic-base once apollo-agent
-# PR #281 merges and a prod release cuts the corresponding tag.
-FROM montecarlodata/pre-release-agent:1.5.2rc2632-generic-base AS base
+# TEMPORARY: pinned to a pre-release dev build of the new `system-base` tag.
+# Swap to montecarlodata/agent:<version>-system-base once apollo-agent#282
+# merges and a prod release cuts the corresponding tag.
+FROM montecarlodata/pre-release-agent:1.5.4rc2640-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
@@ -14,11 +13,12 @@ ENV APP_HOME=/app
 ENV VENV_DIR=.venv
 WORKDIR $APP_HOME
 
-# delete the source code from the base image, we don't need it
-RUN rm -rf ./apollo
+RUN python -m venv $VENV_DIR
 
 COPY requirements.txt ./
-RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir --force-reinstall -r requirements.txt
+RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
+# VULN-423: pip and setuptools must be upgraded post-install
+RUN . $VENV_DIR/bin/activate && pip install -U pip setuptools
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY gunicorn.conf.py ./
