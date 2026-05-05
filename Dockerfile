@@ -1,7 +1,7 @@
 # TEMPORARY: pinned to a pre-release dev build of the new `system-base` tag.
 # Swap to montecarlodata/agent:<version>-system-base once apollo-agent#282
 # merges and a prod release cuts the corresponding tag.
-FROM montecarlodata/pre-release-agent:1.5.4rc2640-system-base AS base
+FROM montecarlodata/pre-release-agent:1.5.4rc2643-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
