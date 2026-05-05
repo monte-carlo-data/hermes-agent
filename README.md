@@ -81,26 +81,24 @@ CoreDNS is running at https://127.0.0.1:58375/api/v1/namespaces/kube-system/serv
 docker build --pull --no-cache --target hermes-generic -t hermes-agent:local .
 ```
 
-When developing, you can point to a local repo (e.g. `agent-common`) to test your changes. 
-Update the Dockerfile to remove pre-installed packages from the base image so your local versions take precedence, then copies the local `code` source via `--build-context`:
+When developing, you can point to a local repo (e.g. `agent-common`) to test your changes.
+The base image (`montecarlodata/agent:<version>-system-base`) contains only system-level
+dependencies (apt packages) — no pre-installed venv — so passing your local source as a
+`--build-context` and copying it from the Dockerfile is enough.
 
-Update your Dockerfile with
-```
-# delete the source code and pre-installed packages from the base image,
-# so our requirements.txt versions take precedence
-RUN rm -rf ./apollo && \
-    . $VENV_DIR/bin/activate && pip uninstall -y apollo-agent agent-base 2>/dev/null; true
+1. Add this `COPY` to the Dockerfile so the build pulls in your local source:
 
-# Copy local agent-common for editable install.
-# Pass via: --build-context agent-common=../agent-common
-COPY --from=agent-common . /agent-common
-```
+   ```
+   # Copy local agent-common from the named build context for an editable install.
+   COPY --from=agent-common . /agent-common
+   ```
 
-Rebuild your docker image
-```bash
-docker build --pull --no-cache --target hermes-generic -t hermes-agent:local \
-  --build-context agent-common=../agent-common .
-```
+2. Build the image, supplying the local repo path via `--build-context`:
+
+   ```bash
+   docker build --pull --no-cache --target hermes-generic -t hermes-agent:local \
+     --build-context agent-common=../agent-common .
+   ```
 
 ### Step 4 — Load the image into kind
 
@@ -218,7 +216,7 @@ All properties below have defaults in the Helm templates and can be omitted from
 |---|---|
 | **Toggle** | `metricsCollector.enabled: true\|false` |
 | **Image** | `otel/opentelemetry-collector-k8s:0.147.0` (configurable via `metricsCollector.image`) |
-| **How it works** | Uses the [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) with the `kubeletstats` receiver to scrape container CPU and memory metrics from the Kubelet API. Runs as a DaemonSet with `serviceAccount` auth. An Alpine init container extracts credentials from the JSON secret into files that the collector reads via `${file:...}` syntax. |
+| **How it works** | Uses the [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) with the `kubeletstats` receiver to scrape container CPU and memory metrics from the Kubelet API. Runs as a DaemonSet with `serviceAccount` auth. A busybox (`busybox:1.37`) init container extracts credentials from the JSON secret into files that the collector reads via `${file:...}` syntax. |
 | **Collection interval** | Every `60s` by default (`metricsCollector.collectionIntervalSeconds`). |
 | **Metrics collected** | `container.cpu.time`, `container.cpu.usage`, `container.memory.usage`, `container.memory.rss`, `container.memory.working_set` |
 | **Endpoint** | `metricsCollector.output.endpoint` → `PUT /api/v1/agent/metrics` (OTLP JSON format) |

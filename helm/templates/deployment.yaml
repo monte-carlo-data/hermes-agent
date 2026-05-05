@@ -21,6 +21,10 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: mcd-agent-service-account
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if or (include "hermes.firewallCa.enabled" .) .Values.extraInitContainers }}
       initContainers:
         {{- if include "hermes.firewallCa.enabled" . }}
@@ -34,6 +38,10 @@ spec:
         - name: mcd-generic-agent
           image: "{{ .Values.image.repository | default "montecarlodata/agent" }}:{{ .Values.image.tag | default "latest-generic" }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - containerPort: {{ .Values.container.port | default 8080 }}
           livenessProbe:

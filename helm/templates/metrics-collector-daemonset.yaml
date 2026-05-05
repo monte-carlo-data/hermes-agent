@@ -18,6 +18,10 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/metrics-collector-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: mcd-agent-service-account
+      {{- with .Values.metricsCollector.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
         {{- if include "hermes.firewallCa.enabled" . }}
         {{- include "hermes.firewallCa.initContainer" . | nindent 8 }}
@@ -27,6 +31,10 @@ spec:
         # to a shared file that the main container sources.
         - name: extract-credentials
           image: busybox:1.37
+          {{- with .Values.metricsCollector.initContainerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           command:
             - /bin/sh
             - -c
@@ -47,6 +55,10 @@ spec:
       containers:
         - name: metrics-collector
           image: "{{ .Values.metricsCollector.image.repository | default "otel/opentelemetry-collector-k8s" }}:{{ .Values.metricsCollector.image.tag | default "0.147.0" }}"
+          {{- with .Values.metricsCollector.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           args:
             - --config=/etc/otel/otel-collector-config.yaml
           env:

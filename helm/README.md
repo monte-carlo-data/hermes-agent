@@ -127,8 +127,56 @@ The chart is configured via values files. See the example files for each platfor
 | `container.opsRunnerThreadCount` | Concurrent operation threads | `"18"` |
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
 | `container.resources` | Pod CPU/memory requests and limits | `{}` (cluster defaults) |
+| `podSecurityContext` | Pod-level security context | non-root, UID/GID 1000 (see [Pod Security](#pod-security)) |
+| `containerSecurityContext` | Agent container security context | privilege escalation off, all capabilities dropped |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
 | `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `2` |
+
+### Pod Security
+
+The agent image bakes a non-root user (`mcdagent`, UID/GID 1000) and the chart sets pod- and container-level security contexts that satisfy the common K8s hardening checks: `runAsNonRoot: true`, `runAsUser: 1000`, `runAsGroup: 1000`, `fsGroup: 1000`, `allowPrivilegeEscalation: false`, and `capabilities.drop: [ALL]`.
+
+`readOnlyRootFilesystem` is intentionally **off** by default — the agent writes temporary files (CA bundles, DB certs, git checkouts) under `/tmp` at runtime. Enabling it requires mounting an `emptyDir` at `/tmp`.
+
+Override the defaults to match your cluster's policies:
+
+```yaml
+podSecurityContext:
+  runAsUser: 2000
+  runAsGroup: 2000
+  fsGroup: 2000
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+```
+
+The bundled `metrics-collector` daemonset is also hardened: the upstream `otel/opentelemetry-collector-k8s` image is distroless and bakes `USER 10001:10001`, so the chart applies a matching pod-level securityContext (`runAsNonRoot: true`, UID/GID/fsGroup `10001`) and drops capabilities on both the init and main containers. The init container's security context is exposed separately as `metricsCollector.initContainerSecurityContext` so you can set `readOnlyRootFilesystem: true` on the OTel main container without breaking the busybox init's writes to the shared emptyDir. Override via `metricsCollector.podSecurityContext`, `metricsCollector.containerSecurityContext`, and `metricsCollector.initContainerSecurityContext`.
+
+The firewall-CA init container (rendered when `firewallCa.cert` or `firewallCa.externalSecretRef` is set) has its own overridable context at `firewallCa.securityContext` — useful on managed K8s tiers that reject `seccompProfile: RuntimeDefault` or mandate specific UID ranges.
+
+#### Values structure note
+The agent's security contexts live at the top level (`podSecurityContext`, `containerSecurityContext`) for backwards compatibility with values files that pre-date the metrics-collector hardening. The metrics-collector and firewall-CA settings nest under `metricsCollector.*` / `firewallCa.*`. When overriding both, remember to set the top-level keys for the agent and the nested keys for the others.
+
+#### `seccompProfile: RuntimeDefault` compatibility
+Defaults include `seccompProfile.type: RuntimeDefault`, which requires Kubernetes **1.19+** at the field level (and is reliably available on managed distros from 1.22+). Clusters that disallow it will fail admission with a `seccompProfile` validation error. To opt out:
+
+```yaml
+containerSecurityContext:
+  seccompProfile: null
+metricsCollector:
+  containerSecurityContext:
+    seccompProfile: null
+  initContainerSecurityContext:
+    seccompProfile: null
+firewallCa:
+  securityContext:
+    seccompProfile: null
+```
+
+> Note: The `logs-collector` (fluentd) daemonset is **not** hardened by default — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, which makes non-root operation cluster-dependent. If your cluster enforces `runAsNonRoot` for daemonsets, set `logsCollector.enabled: false` and route agent logs through your existing logging stack (the agent emits structured JSON to stdout).
 
 ### Resource Requests and Limits
 
