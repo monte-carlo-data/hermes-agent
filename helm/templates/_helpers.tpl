@@ -12,10 +12,18 @@ Used by the agent deployment and both collector daemonsets.
 {{- end -}}
 
 {{/* Init container that merges system CAs + firewall CA into a combined bundle.
-     Alpine is pinned to a specific minor for reproducibility — bump periodically. */}}
+     Alpine is pinned to a specific minor for reproducibility — bump periodically.
+     The container-level securityContext is required (not inherited from the pod)
+     by clusters that enforce the K8s `restricted` Pod Security Standard. */}}
 {{- define "hermes.firewallCa.initContainer" -}}
 - name: build-ca-bundle
   image: alpine:3.21
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
   command:
     - sh
     - -c

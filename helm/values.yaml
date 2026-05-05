@@ -21,11 +21,16 @@ podSecurityContext:
 # Container-level security context applied to the agent container.
 # readOnlyRootFilesystem is intentionally off — the agent writes temporary
 # files (CA bundles, DB certs, git checkouts) under /tmp at runtime.
+# seccompProfile RuntimeDefault is required to satisfy the K8s `restricted`
+# Pod Security Standard. Override (e.g. set to {}) on older clusters that
+# don't support it.
 containerSecurityContext:
   allowPrivilegeEscalation: false
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 container:
   opsRunnerThreadCount: "18"
@@ -96,9 +101,12 @@ metricsCollector:
     runAsGroup: 10001
     fsGroup: 10001
   # Container-level security context applied to both the init and main
-  # containers in the metrics-collector daemonset.
+  # containers in the metrics-collector daemonset. seccompProfile
+  # RuntimeDefault is required for the K8s `restricted` Pod Security Standard.
   containerSecurityContext:
     allowPrivilegeEscalation: false
     capabilities:
       drop:
         - ALL
+    seccompProfile:
+      type: RuntimeDefault

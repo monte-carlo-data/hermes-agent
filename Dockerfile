@@ -25,8 +25,9 @@ RUN python -m venv $VENV_DIR
 
 COPY --chown=mcdagent:mcdagent requirements.txt ./
 RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
-# VULN-423: pip and setuptools must be upgraded post-install
-RUN . $VENV_DIR/bin/activate && pip install -U pip setuptools
+# VULN-423: pip and setuptools must be upgraded post-install. Pin to floors that
+# patch the vulnerability. Idempotent — no-op if already at or above the floor.
+RUN . $VENV_DIR/bin/activate && pip install "pip>=26.1.0" "setuptools>=82.0.0"
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY --chown=mcdagent:mcdagent gunicorn.conf.py ./
