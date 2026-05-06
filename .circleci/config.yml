@@ -97,18 +97,45 @@ jobs:
       - checkout
       - docker/check:
           use-docker-credentials-store: true
-      - docker/build:
-          step-name: Build hermes image
-          use-buildkit: true  # to build only the required stages
-          extra_build_args: --target hermes-generic --build-arg code_version=<< parameters.code_version >> --build-arg build_number=<< pipeline.number >>
-          image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-generic,<< parameters.code_version >>-generic
+      # Attestations require the docker-container buildx driver — the default
+      # docker driver writes single manifests, not the OCI image index that
+      # holds attestation manifests alongside the platform image.
+      - run:
+          name: Set up buildx (docker-container driver)
+          command: |
+            docker buildx create --use --name hermes-builder --driver docker-container
+            docker buildx inspect --bootstrap
+      # Build first into the local docker daemon so the existing version
+      # check can run against the image before we push anything. --load and
+      # --push are mutually exclusive when attestations are involved, so
+      # the actual push happens in a second build below (BuildKit cache
+      # makes that one cheap — only SBOM/provenance generation is new work).
+      - run:
+          name: Build hermes image (local) for version verification
+          command: |
+            docker buildx build \
+              --target hermes-generic \
+              --build-arg code_version=<< parameters.code_version >> \
+              --build-arg build_number=<< pipeline.number >> \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:latest-generic \
+              --load \
+              .
       - verify-version-in-docker-image:
           image: montecarlodata/<< parameters.docker_hub_repository >>:latest-generic
           version: << parameters.code_version >>,<< pipeline.number >>
-      - docker/push:
-          image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-generic,<< parameters.code_version >>-generic
+      - run:
+          name: Build and push hermes image with SBOM + SLSA provenance attestations
+          command: |
+            docker buildx build \
+              --target hermes-generic \
+              --build-arg code_version=<< parameters.code_version >> \
+              --build-arg build_number=<< pipeline.number >> \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:latest-generic \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:<< parameters.code_version >>-generic \
+              --sbom=true \
+              --provenance=mode=max \
+              --push \
+              .
   build-and-push-helm-chart:
     machine:
       image: ubuntu-2204:current
