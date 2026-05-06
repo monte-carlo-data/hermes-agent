@@ -82,6 +82,8 @@ spec:
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
+            - name: MCD_IN_PROCESS_LOGS_ENABLED
+              value: {{ and (not .Values.logsCollector.enabled) (default true .Values.logsCollector.inProcessFallback) | quote }}
             {{- if .Values.container.storageEndpointUrl }}
             - name: MCD_STORAGE_ENDPOINT_URL
               value: {{ .Values.container.storageEndpointUrl | quote }}

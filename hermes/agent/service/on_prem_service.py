@@ -15,6 +15,10 @@ from apollo.egress.agent.service.file_login_token_provider import FileLoginToken
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
+from hermes.agent.service.in_process_logs_service import (
+    InProcessLogShippingHandler,
+    InProcessLogsService,
+)
 from hermes.agent.service.metrics_service import MetricsService
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
@@ -26,6 +30,14 @@ _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
+
+# In-process log shipping kicks in when the helm chart sets this true — which it
+# does only when the logs-collector daemonset is disabled AND the
+# logsCollector.inProcessFallback chart value is true (default).
+_IN_PROCESS_LOGS_ENABLED = (
+    os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() == "true"
+)
+_IN_PROCESS_LOGS_LEVEL = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +58,14 @@ class OnPremService(BaseEgressAgentService):
         else:
             logger.info("Getting MCD token from env vars")
             login_token_provider = LocalLoginTokenProvider()
+
         super().__init__(
             backend_service_url=_BACKEND_SERVICE_URL,
             platform="Generic",
             service_name="Generic Agent",
             config_manager=config_manager,
-            skip_logs=True,
-            logs_service=None,
+            skip_logs=not _IN_PROCESS_LOGS_ENABLED,
+            logs_service=self._setup_in_process_log_shipping(instance_id),
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
@@ -196,6 +209,34 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    def stop(self):
+        # Push whatever's still buffered before the "Logs sender" timer is
+        # stopped — minimizes loss of logs emitted between the last tick and
+        # shutdown. _execute_push_logs is a synchronous backend call (no thread
+        # pool), so this won't deadlock during the shutdown sequence.
+        if self._logs_service is not None:
+            try:
+                self._execute_push_logs(operation_id="shutdown_flush", event={})
+            except Exception:
+                logger.exception("Failed to flush in-process logs during shutdown")
+        super().stop()
+
+    @staticmethod
+    def _setup_in_process_log_shipping(
+        instance_id: Optional[str],
+    ) -> Optional[InProcessLogsService]:
+        if not _IN_PROCESS_LOGS_ENABLED:
+            return None
+        level = logging.getLevelName(_IN_PROCESS_LOGS_LEVEL)
+        if not isinstance(level, int):
+            level = logging.INFO
+        handler = InProcessLogShippingHandler(instance_id=instance_id, level=level)
+        logging.getLogger().addHandler(handler)
+        logger.info(
+            f"In-process log shipping enabled (level={logging.getLevelName(level)})"
+        )
+        return InProcessLogsService(handler)
 
     def _get_version(self) -> str:
         return VERSION
