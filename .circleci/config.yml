@@ -97,18 +97,41 @@ jobs:
       - checkout
       - docker/check:
           use-docker-credentials-store: true
-      - docker/build:
-          step-name: Build hermes image
-          use-buildkit: true  # to build only the required stages
-          extra_build_args: --target hermes-generic --build-arg code_version=<< parameters.code_version >> --build-arg build_number=<< pipeline.number >>
-          image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-generic,<< parameters.code_version >>-generic
+      # docker-container driver is required for attestations.
+      - run:
+          name: Set up buildx (docker-container driver)
+          command: |
+            docker buildx create --use --name hermes-builder --driver docker-container
+            docker buildx inspect --bootstrap
+      # Local build first to verify the version before pushing. --load and
+      # --push can't coexist with attestations, so the push step is a second
+      # build (mostly cached).
+      - run:
+          name: Build hermes image (local) for version verification
+          command: |
+            docker buildx build \
+              --target hermes-generic \
+              --build-arg code_version=<< parameters.code_version >> \
+              --build-arg build_number=<< pipeline.number >> \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:latest-generic \
+              --load \
+              .
       - verify-version-in-docker-image:
           image: montecarlodata/<< parameters.docker_hub_repository >>:latest-generic
           version: << parameters.code_version >>,<< pipeline.number >>
-      - docker/push:
-          image: montecarlodata/<< parameters.docker_hub_repository >>
-          tag: latest-generic,<< parameters.code_version >>-generic
+      - run:
+          name: Build and push hermes image with SBOM + SLSA provenance attestations
+          command: |
+            docker buildx build \
+              --target hermes-generic \
+              --build-arg code_version=<< parameters.code_version >> \
+              --build-arg build_number=<< pipeline.number >> \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:latest-generic \
+              --tag montecarlodata/<< parameters.docker_hub_repository >>:<< parameters.code_version >>-generic \
+              --sbom=true \
+              --provenance=mode=max \
+              --push \
+              .
   build-and-push-helm-chart:
     machine:
       image: ubuntu-2204:current
