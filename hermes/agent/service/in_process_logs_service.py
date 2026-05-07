@@ -35,6 +35,10 @@ class InProcessLogShippingHandler(logging.Handler):
         level: int = DEFAULT_LEVEL,
     ):
         super().__init__(level=level)
+        # Default formatter renders "<message>\n<traceback>" when exc_info is set,
+        # so logger.exception(...) and logger.error(..., exc_info=True) preserve
+        # stack traces in the shipped payload.
+        self.setFormatter(logging.Formatter("%(message)s"))
         self._instance_id = instance_id or ""
         self._buffer: Deque[Dict[str, Any]] = deque(maxlen=buffer_size)
         self._lock = threading.Lock()
@@ -53,7 +57,7 @@ class InProcessLogShippingHandler(logging.Handler):
         try:
             shipped = {
                 "timestamp": _format_timestamp(record.created),
-                "message": record.getMessage(),
+                "message": self.format(record),
                 "instance_id": self._instance_id,
             }
             with self._lock:

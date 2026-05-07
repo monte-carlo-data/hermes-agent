@@ -97,6 +97,29 @@ class InProcessLogShippingHandlerTests(TestCase):
         records = handler.drain(_limit=10)
         self.assertEqual(records[0]["message"], "user=alice status=200")
 
+    def test_exception_traceback_is_included(self):
+        # logger.exception(...) and logger.error(..., exc_info=True) must
+        # ship the formatted traceback alongside the message — Formatter.format
+        # appends it when record.exc_info is set.
+        handler = InProcessLogShippingHandler(instance_id="i")
+        logger = logging.getLogger("hermes.test.in_process_logs_exc")
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(handler)
+        try:
+            try:
+                raise ValueError("boom")
+            except ValueError:
+                logger.exception("caught it")
+        finally:
+            logger.removeHandler(handler)
+        records = handler.drain(_limit=10)
+        self.assertEqual(len(records), 1)
+        msg = records[0]["message"]
+        self.assertIn("caught it", msg)
+        self.assertIn("ValueError", msg)
+        self.assertIn("boom", msg)
+        self.assertIn("Traceback", msg)
+
 
 class InProcessLogsServiceTests(TestCase):
     def test_get_logs_drains_handler_buffer(self):
