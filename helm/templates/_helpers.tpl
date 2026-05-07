@@ -1,4 +1,17 @@
 {{/*
+Log shipping mode validation. Fails on the legacy two-flag keys (renamed to
+the `logShipping` enum) and rejects unknown enum values.
+*/}}
+{{- define "hermes.logShipping.validate" -}}
+{{- if hasKey .Values.logsCollector "enabled" -}}
+{{- fail "logsCollector.enabled has been replaced by the top-level `logShipping` setting. Use `logShipping: daemonset` (was `logsCollector.enabled: true`) or `logShipping: in-process` (was `logsCollector.enabled: false`). See helm/README.md." -}}
+{{- end -}}
+{{- if not (has .Values.logShipping (list "in-process" "daemonset" "none")) -}}
+{{- fail (printf "logShipping must be one of: in-process, daemonset, none (got: %q)" (toString .Values.logShipping)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Firewall CA — shared helpers for TLS inspection support.
 Used by the agent deployment and both collector daemonsets.
 */}}

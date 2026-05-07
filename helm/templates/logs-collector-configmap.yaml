@@ -1,4 +1,4 @@
-{{- if .Values.logsCollector.enabled }}
+{{- if eq .Values.logShipping "daemonset" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -1,4 +1,4 @@
-{{- if .Values.logsCollector.enabled }}
+{{- if eq .Values.logShipping "daemonset" }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -31,23 +31,16 @@ spec:
             - /bin/sh
             - -c
             - |
-              if [ "$LOGGING_ENABLED" = "false" ]; then
-                echo "Logging disabled. Exiting."
-                sleep infinity
-              else
-                # Extract credentials from JSON secret and export as env vars.
-                # Fluentd v1.18+ natively interpolates #{ENV['...']} in headers.
-                export MCD_ID=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_id']")
-                export MCD_TOKEN=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_token']")
-                exec fluentd -c /fluentd/etc/fluent.conf
-              fi
+              # Extract credentials from JSON secret and export as env vars.
+              # Fluentd v1.18+ natively interpolates #{ENV['...']} in headers.
+              export MCD_ID=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_id']")
+              export MCD_TOKEN=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_token']")
+              exec fluentd -c /fluentd/etc/fluent.conf
+          {{- if include "hermes.firewallCa.enabled" . }}
           env:
-            - name: LOGGING_ENABLED
-              value: {{ .Values.logsCollector.enabled | quote }}
-            {{- if include "hermes.firewallCa.enabled" . }}
             - name: SSL_CERT_FILE
               value: /etc/ssl/combined-ca/ca-bundle.crt
-            {{- end }}
+          {{- end }}
           {{- with .Values.logsCollector.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

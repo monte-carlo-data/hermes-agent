@@ -7,7 +7,7 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | Resource | Name | Conditional |
 |---|---|---|
 | Deployment | `mcd-agent-deployment` | Always |
-| DaemonSet | `logs-collector` | `logsCollector.enabled` |
+| DaemonSet | `logs-collector` | `logShipping == "daemonset"` |
 | DaemonSet | `metrics-collector` | `metricsCollector.enabled` |
 | Namespace | configurable (default `mcd-agent`) | Always |
 | ServiceAccount | `mcd-agent-service-account` | Always |
@@ -176,7 +176,7 @@ firewallCa:
     seccompProfile: null
 ```
 
-> Note: The `logs-collector` (fluentd) daemonset is **not** hardened by default — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, which makes non-root operation cluster-dependent. If your cluster enforces `runAsNonRoot` for daemonsets, set `logsCollector.enabled: false`. By default the agent will then ship its own logs in-process to the same `/api/v1/agent/logs` endpoint (controlled by `logsCollector.inProcessFallback`, default `true`), so Monte Carlo support retains visibility. To opt out of MC log shipping entirely and route agent logs through your own logging stack instead, also set `logsCollector.inProcessFallback: false` (the agent emits structured JSON to stdout).
+> Note: The `logs-collector` (fluentd) daemonset is **not** hardened — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, so it must run as root. If your cluster enforces `runAsNonRoot` for daemonsets, leave `logShipping` at its default (`in-process`): the agent ships its own logs to the same `/api/v1/agent/logs` endpoint and no DaemonSet is required. To opt out of MC log shipping entirely and route agent logs through your own logging stack, set `logShipping: none` (the agent emits structured JSON to stdout).
 
 ### Resource Requests and Limits
 
@@ -217,21 +217,30 @@ When `autoscaling.enabled` is `true`, the Deployment omits `replicas:` so the HP
 
 The chart uses the [External Secrets Operator](https://external-secrets.io/) to sync secrets from cloud secret managers. Configure via `secretStore.provider` with your cloud-specific settings. Set `skipExternalSecrets: true` for local development where secrets are created manually.
 
-### Logs Collector
+### Log Shipping
 
-A Fluentd DaemonSet that tails agent container logs and forwards them to the orchestrator. When the daemonset is disabled (e.g. for non-root cluster policies), the agent falls back to in-process shipping via the same endpoint — gated by `logsCollector.inProcessFallback`.
+Top-level `logShipping` selects how agent logs reach Monte Carlo. Pick one:
+
+| Mode | What it does |
+|---|---|
+| `in-process` (default) | The agent buffers its own logs and POSTs them to `/api/v1/agent/logs`. Works in any cluster — no DaemonSet, no host paths, no root containers. |
+| `daemonset` | A fluentd DaemonSet tails container logs from the host and forwards them to the same endpoint. Requires root pods (host log paths are root-owned). |
+| `none` | No MC log shipping. The agent emits structured JSON to stdout — forward it through your own stack (CloudWatch, Splunk, Azure Monitor, etc.). |
+
+The `daemonset` mode honours the `logsCollector.*` settings below. The other modes ignore them.
 
 | Property | Default |
 |---|---|
-| `logsCollector.enabled` | `true` |
-| `logsCollector.inProcessFallback` | `true` (in-process shipping when daemonset is disabled; set `false` to opt out of MC log shipping entirely) |
-| `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` |
+| `logShipping` | `in-process` |
+| `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` (daemonset only) |
 | `logsCollector.image.repository` | `fluent/fluentd-kubernetes-daemonset` |
 | `logsCollector.image.tag` | `v1.18-debian-forward-1` |
 | `logsCollector.buffer.flushInterval` | `5m` |
 | `logsCollector.buffer.chunkLimitSize` | `8MB` |
 | `logsCollector.buffer.totalLimitSize` | `512MB` |
 | `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
+
+The agent-side in-process shipper threshold defaults to `INFO` and can be raised via the `MCD_IN_PROCESS_LOGS_LEVEL` env var on the agent container.
 
 ### Metrics Collector
 
