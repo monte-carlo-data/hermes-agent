@@ -12,13 +12,13 @@ from apollo.egress.agent.service.base_egress_service import (
     OperationMatchingType,
 )
 from apollo.egress.agent.service.file_login_token_provider import FileLoginTokenProvider
+from apollo.egress.agent.service.in_process_logs_service import (
+    setup_in_process_log_shipping,
+)
+from apollo.egress.agent.service.logs_service import BaseLogsService
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
-from hermes.agent.service.in_process_logs_service import (
-    InProcessLogShippingHandler,
-    InProcessLogsService,
-)
 from hermes.agent.service.metrics_service import MetricsService
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
@@ -37,9 +37,8 @@ _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
 _IN_PROCESS_LOGS_ENABLED = (
     os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() == "true"
 )
-_IN_PROCESS_LOGS_LEVEL = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
-# Bound the shutdown flush so it can't stall the pod past terminationGracePeriodSeconds.
-_SHUTDOWN_FLUSH_TIMEOUT_SECONDS = 5
+_level = logging.getLevelName(os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper())
+_IN_PROCESS_LOGS_LEVEL = _level if isinstance(_level, int) else logging.INFO
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +60,14 @@ class OnPremService(BaseEgressAgentService):
             logger.info("Getting MCD token from env vars")
             login_token_provider = LocalLoginTokenProvider()
 
+        logs_service = self._build_logs_service(instance_id)
         super().__init__(
             backend_service_url=_BACKEND_SERVICE_URL,
             platform="Generic",
             service_name="Generic Agent",
             config_manager=config_manager,
-            skip_logs=not _IN_PROCESS_LOGS_ENABLED,
-            logs_service=self._setup_in_process_log_shipping(instance_id),
+            skip_logs=logs_service is None,
+            logs_service=logs_service,
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
@@ -212,36 +212,11 @@ class OnPremService(BaseEgressAgentService):
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
 
-    def stop(self):
-        # Stop producers first so the buffer reflects the final state at drain.
-        super().stop()
-        if isinstance(self._logs_service, InProcessLogsService):
-            # Detach first so any log emitted during the flush goes to stdout
-            # rather than an orphan buffer.
-            self._logs_service.close()
-            try:
-                self._flush_logs(
-                    timeout=_SHUTDOWN_FLUSH_TIMEOUT_SECONDS,
-                    retries=0,
-                )
-            except Exception:
-                logger.exception("Failed to flush in-process logs during shutdown")
-
     @staticmethod
-    def _setup_in_process_log_shipping(
-        instance_id: Optional[str],
-    ) -> Optional[InProcessLogsService]:
-        if not _IN_PROCESS_LOGS_ENABLED:
-            return None
-        level = logging.getLevelName(_IN_PROCESS_LOGS_LEVEL)
-        if not isinstance(level, int):
-            level = logging.INFO
-        handler = InProcessLogShippingHandler(instance_id=instance_id, level=level)
-        logging.getLogger().addHandler(handler)
-        logger.info(
-            f"In-process log shipping enabled (level={logging.getLevelName(level)})"
-        )
-        return InProcessLogsService(handler)
+    def _build_logs_service(instance_id: Optional[str]) -> Optional[BaseLogsService]:
+        if _IN_PROCESS_LOGS_ENABLED:
+            return setup_in_process_log_shipping(instance_id, _IN_PROCESS_LOGS_LEVEL)
+        return None
 
     def _get_version(self) -> str:
         return VERSION
