@@ -1,14 +1,14 @@
-"""In-process log shipping for the hermes agent.
+"""In-process log shipping for the generic agent.
 
 When the logs-collector daemonset is disabled (e.g. for non-root cluster
 policies), this module captures the agent's structured log records into a
-bounded in-memory buffer and exposes them via apollo's BaseLogsService
-interface so apollo's existing "Logs sender" TimerService can periodically
+bounded in-memory buffer and exposes them via the BaseLogsService
+interface so the existing "Logs sender" TimerService can periodically
 POST them to the same /api/v1/agent/logs endpoint the daemonset uses.
 
 Records are reshaped to fluentd's wire format ({timestamp, message,
 instance_id}) so they're indistinguishable from daemonset-shipped records
-on the artemis side.
+on the backend side.
 """
 
 import logging
@@ -40,7 +40,7 @@ class InProcessLogShippingHandler(logging.Handler):
         self._lock = threading.Lock()
         # Counter for records the deque silently evicted because the buffer was
         # full at emit() time. Surfaced as a synthetic warning at the next
-        # drain() so the loss is visible artemis-side.
+        # drain() so the loss is visible backend-side.
         self._dropped_count = 0
         # If a downstream call inside emit() ever logs, it would re-enter this
         # handler and recurse. Drop re-entrant records silently.

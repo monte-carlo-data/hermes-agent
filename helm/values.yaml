@@ -61,7 +61,7 @@ autoscaling:
 logsCollector:
   enabled: true
   # In-process fallback when the daemonset is disabled. Set false to opt out
-  # of MC log shipping entirely (platform pipeline owns it).
+  # of MC log shipping entirely.
   inProcessFallback: true
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
