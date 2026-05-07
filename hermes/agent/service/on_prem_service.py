@@ -60,7 +60,7 @@ class OnPremService(BaseEgressAgentService):
             logger.info("Getting MCD token from env vars")
             login_token_provider = LocalLoginTokenProvider()
 
-        logs_service = self._build_logs_service(instance_id)
+        logs_service = self._build_logs_service()
         super().__init__(
             backend_service_url=_BACKEND_SERVICE_URL,
             platform="Generic",
@@ -213,9 +213,9 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
 
     @staticmethod
-    def _build_logs_service(instance_id: Optional[str]) -> Optional[BaseLogsService]:
+    def _build_logs_service() -> Optional[BaseLogsService]:
         if _IN_PROCESS_LOGS_ENABLED:
-            return setup_in_process_log_shipping(instance_id, _IN_PROCESS_LOGS_LEVEL)
+            return setup_in_process_log_shipping(level=_IN_PROCESS_LOGS_LEVEL)
         return None
 
     def _get_version(self) -> str:
