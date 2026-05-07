@@ -24,7 +24,7 @@ class InProcessLogShippingHandlerTests(TestCase):
     def test_emit_buffers_in_fluentd_shape(self):
         handler = InProcessLogShippingHandler(instance_id="abc-123")
         handler.emit(self._make_record(msg="hello world"))
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         self.assertEqual(len(records), 1)
         record = records[0]
         self.assertEqual(set(record.keys()), {"timestamp", "message", "instance_id"})
@@ -33,16 +33,39 @@ class InProcessLogShippingHandlerTests(TestCase):
         self.assertTrue(record["timestamp"].endswith("Z"))
 
     def test_drain_returns_all_records_oldest_first_and_clears(self):
-        # The `limit` parameter is intentionally ignored — drain returns
-        # everything currently buffered.
         handler = InProcessLogShippingHandler(instance_id="i")
         handler.emit(self._make_record(msg="first"))
         handler.emit(self._make_record(msg="second"))
         handler.emit(self._make_record(msg="third"))
-        records = handler.drain(_limit=2)  # limit ignored
+        records = handler.drain()
         self.assertEqual([r["message"] for r in records], ["first", "second", "third"])
         # Buffer is cleared after drain.
-        self.assertEqual(handler.drain(_limit=10), [])
+        self.assertEqual(handler.drain(), [])
+
+    def test_peek_returns_records_without_clearing(self):
+        handler = InProcessLogShippingHandler(instance_id="i")
+        handler.emit(self._make_record(msg="first"))
+        handler.emit(self._make_record(msg="second"))
+        handler.emit(self._make_record(msg="third"))
+        # Two consecutive peeks return the same data — non-destructive.
+        self.assertEqual(
+            [r["message"] for r in handler.peek(10)],
+            ["first", "second", "third"],
+        )
+        self.assertEqual(
+            [r["message"] for r in handler.peek(10)],
+            ["first", "second", "third"],
+        )
+        # Drain still returns everything afterwards.
+        self.assertEqual(len(handler.drain()), 3)
+
+    def test_peek_respects_limit(self):
+        handler = InProcessLogShippingHandler(instance_id="i")
+        for msg in ("a", "b", "c"):
+            handler.emit(self._make_record(msg=msg))
+        self.assertEqual([r["message"] for r in handler.peek(2)], ["a", "b"])
+        # Buffer still has all three.
+        self.assertEqual(len(handler.drain()), 3)
 
     def test_buffer_overflow_drops_oldest_and_surfaces_warning(self):
         handler = InProcessLogShippingHandler(instance_id="i", buffer_size=2)
@@ -50,7 +73,7 @@ class InProcessLogShippingHandlerTests(TestCase):
         handler.emit(self._make_record(msg="b"))
         handler.emit(self._make_record(msg="c"))  # evicts "a"
         handler.emit(self._make_record(msg="d"))  # evicts "b"
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         # Synthetic warning record prepended, then the surviving records.
         self.assertEqual(len(records), 3)
         self.assertIn("buffer overflow", records[0]["message"])
@@ -61,7 +84,7 @@ class InProcessLogShippingHandlerTests(TestCase):
         # Counter resets after drain — a subsequent drain with no new evictions
         # must not include another synthetic warning.
         handler.emit(self._make_record(msg="e"))
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         self.assertEqual([r["message"] for r in records], ["e"])
 
     def test_below_handler_level_is_filtered(self):
@@ -77,7 +100,7 @@ class InProcessLogShippingHandlerTests(TestCase):
             logger.warning("warning message — should be kept")
         finally:
             logger.removeHandler(handler)
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         self.assertEqual(
             [r["message"] for r in records], ["warning message — should be kept"]
         )
@@ -94,7 +117,7 @@ class InProcessLogShippingHandlerTests(TestCase):
             exc_info=None,
         )
         handler.emit(record)
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         self.assertEqual(records[0]["message"], "user=alice status=200")
 
     def test_exception_traceback_is_included(self):
@@ -112,7 +135,7 @@ class InProcessLogShippingHandlerTests(TestCase):
                 logger.exception("caught it")
         finally:
             logger.removeHandler(handler)
-        records = handler.drain(_limit=10)
+        records = handler.drain()
         self.assertEqual(len(records), 1)
         msg = records[0]["message"]
         self.assertIn("caught it", msg)
@@ -122,6 +145,30 @@ class InProcessLogShippingHandlerTests(TestCase):
 
 
 class InProcessLogsServiceTests(TestCase):
+    def test_supports_drain_returns_true(self):
+        service = InProcessLogsService(InProcessLogShippingHandler(instance_id="i"))
+        self.assertTrue(service.supports_drain())
+
+    def test_drain_returns_all_buffered_records(self):
+        handler = InProcessLogShippingHandler(instance_id="i")
+        service = InProcessLogsService(handler)
+        for msg in ("a", "b", "c"):
+            handler.emit(
+                logging.LogRecord(
+                    name="test",
+                    level=logging.WARNING,
+                    pathname=__file__,
+                    lineno=0,
+                    msg=msg,
+                    args=(),
+                    exc_info=None,
+                )
+            )
+        records = service.drain()
+        self.assertEqual([r["message"] for r in records], ["a", "b", "c"])
+        # Buffer cleared.
+        self.assertEqual(service.drain(), [])
+
     def test_close_detaches_handler_from_root_logger(self):
         handler = InProcessLogShippingHandler(instance_id="i")
         service = InProcessLogsService(handler)
@@ -136,22 +183,26 @@ class InProcessLogsServiceTests(TestCase):
             if handler in root.handlers:
                 root.removeHandler(handler)
 
-    def test_get_logs_drains_handler_buffer(self):
+    def test_get_logs_is_non_destructive(self):
         handler = InProcessLogShippingHandler(instance_id="i")
         service = InProcessLogsService(handler)
-
-        record = logging.LogRecord(
-            name="test",
-            level=logging.WARNING,
-            pathname=__file__,
-            lineno=0,
-            msg="payload",
-            args=(),
-            exc_info=None,
+        handler.emit(
+            logging.LogRecord(
+                name="test",
+                level=logging.WARNING,
+                pathname=__file__,
+                lineno=0,
+                msg="payload",
+                args=(),
+                exc_info=None,
+            )
         )
-        handler.emit(record)
-        result = service.get_logs(limit=5)
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0]["message"], "payload")
-        # Buffer is drained, so a follow-up call returns nothing.
+        # Two consecutive get_logs calls see the same record — buffer is
+        # not drained, so the periodic push still ships it later.
+        first = service.get_logs(limit=5)
+        second = service.get_logs(limit=5)
+        self.assertEqual([r["message"] for r in first], ["payload"])
+        self.assertEqual([r["message"] for r in second], ["payload"])
+        # drain() is the destructive counterpart.
+        self.assertEqual(len(service.drain()), 1)
         self.assertEqual(service.get_logs(limit=5), [])

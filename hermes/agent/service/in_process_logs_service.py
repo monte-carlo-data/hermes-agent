@@ -11,6 +11,7 @@ instance_id}) so they're indistinguishable from daemonset-shipped records
 on the backend side.
 """
 
+import itertools
 import logging
 import threading
 from collections import deque
@@ -69,14 +70,11 @@ class InProcessLogShippingHandler(logging.Handler):
         finally:
             self._reentry.in_emit = False
 
-    def drain(self, _limit: int) -> List[Dict[str, Any]]:
+    def drain(self) -> List[Dict[str, Any]]:
         """Pop and return all buffered records.
 
-        The `limit` parameter from BaseLogsService is intentionally ignored —
-        our buffer is already bounded by `buffer_size`, so a full drain has a
-        known upper bound (~buffer_size records per push). Honoring a smaller
-        limit would systematically lag at sustained log rates and cause the
-        deque to silently evict unsent records. If the buffer ever did
+        Our buffer is bounded by `buffer_size`, so a full drain has a known
+        upper bound (~buffer_size records per push). If the buffer ever did
         overflow, the count of dropped records is surfaced as a synthetic
         warning at the head of the next drain.
         """
@@ -98,6 +96,15 @@ class InProcessLogShippingHandler(logging.Handler):
             self._buffer.clear()
             return records
 
+    def peek(self, limit: int) -> List[Dict[str, Any]]:
+        """Return up to `limit` oldest buffered records without clearing.
+
+        Used for non-destructive sampling (e.g. on-demand backend pulls).
+        `drain()` is the destructive flush counterpart.
+        """
+        with self._lock:
+            return list(itertools.islice(self._buffer, max(limit, 0)))
+
 
 def _format_timestamp(epoch_seconds: Optional[float] = None) -> str:
     ts = (
@@ -115,7 +122,13 @@ class InProcessLogsService(BaseLogsService):
         self._handler = handler
 
     def get_logs(self, limit: int) -> List[Dict[str, Any]]:
-        return self._handler.drain(limit)
+        return self._handler.peek(limit)
+
+    def supports_drain(self) -> bool:
+        return True
+
+    def drain(self) -> List[Dict[str, Any]]:
+        return self._handler.drain()
 
     def close(self) -> None:
         """Detach the handler from the root logger and release resources."""

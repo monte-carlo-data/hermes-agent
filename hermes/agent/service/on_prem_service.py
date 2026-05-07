@@ -38,6 +38,8 @@ _IN_PROCESS_LOGS_ENABLED = (
     os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() == "true"
 )
 _IN_PROCESS_LOGS_LEVEL = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
+# Bound the shutdown flush so it can't stall the pod past terminationGracePeriodSeconds.
+_SHUTDOWN_FLUSH_TIMEOUT_SECONDS = 5
 
 logger = logging.getLogger(__name__)
 
@@ -211,19 +213,24 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
 
     def stop(self):
-        # Push whatever's still buffered before the "Logs sender" timer is
-        # stopped — minimizes loss of logs emitted between the last tick and
-        # shutdown. _execute_push_logs is a synchronous backend call (no thread
-        # pool), so this won't deadlock during the shutdown sequence.
-        if self._logs_service is not None:
+        # Stop producers first so the buffer reflects the final state at drain.
+        super().stop()
+        if isinstance(self._logs_service, InProcessLogsService):
             try:
-                self._execute_push_logs(operation_id="shutdown_flush", event={})
+                logs = self._logs_service.drain()
+                # Detach before the POST so its log line doesn't land in an
+                # orphan buffer.
+                self._logs_service.close()
+                if logs:
+                    self._backend_client.execute_operation(
+                        "/api/v1/agent/logs",
+                        "POST",
+                        {"logs": logs},
+                        retries=0,
+                        timeout=_SHUTDOWN_FLUSH_TIMEOUT_SECONDS,
+                    )
             except Exception:
                 logger.exception("Failed to flush in-process logs during shutdown")
-        super().stop()
-        # Detach handler so post-shutdown logs don't fill an undrained buffer.
-        if isinstance(self._logs_service, InProcessLogsService):
-            self._logs_service.close()
 
     @staticmethod
     def _setup_in_process_log_shipping(

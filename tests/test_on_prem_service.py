@@ -92,3 +92,18 @@ class OnPremServiceTests(TestCase):
             )
         )
         get_types_mock.assert_called_once_with("3456")
+
+    def test_super_stop_preserves_backend_client(self):
+        # The shutdown-flush path in OnPremService.stop() runs AFTER super().stop()
+        # and depends on self._backend_client still being usable. If the parent
+        # ever starts tearing down the backend client, this test fails first.
+        from apollo.egress.agent.service.base_egress_service import (
+            BaseEgressAgentService,
+        )
+
+        backend_before = self._service._backend_client
+        self.assertIsNotNone(backend_before)
+        # Call parent stop directly; OnPremService.stop wraps it with extra
+        # shutdown-flush logic that we don't want to exercise here.
+        BaseEgressAgentService.stop(self._service)
+        self.assertIs(self._service._backend_client, backend_before)
