@@ -216,19 +216,14 @@ class OnPremService(BaseEgressAgentService):
         # Stop producers first so the buffer reflects the final state at drain.
         super().stop()
         if isinstance(self._logs_service, InProcessLogsService):
+            # Detach first so any log emitted during the flush goes to stdout
+            # rather than an orphan buffer.
+            self._logs_service.close()
             try:
-                logs = self._logs_service.drain()
-                # Detach before the POST so its log line doesn't land in an
-                # orphan buffer.
-                self._logs_service.close()
-                if logs:
-                    self._backend_client.execute_operation(
-                        "/api/v1/agent/logs",
-                        "POST",
-                        {"logs": logs},
-                        retries=0,
-                        timeout=_SHUTDOWN_FLUSH_TIMEOUT_SECONDS,
-                    )
+                self._flush_logs(
+                    timeout=_SHUTDOWN_FLUSH_TIMEOUT_SECONDS,
+                    retries=0,
+                )
             except Exception:
                 logger.exception("Failed to flush in-process logs during shutdown")
 
