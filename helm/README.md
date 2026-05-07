@@ -176,7 +176,7 @@ firewallCa:
     seccompProfile: null
 ```
 
-> Note: The `logs-collector` (fluentd) daemonset is **not** hardened by default — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, which makes non-root operation cluster-dependent. If your cluster enforces `runAsNonRoot` for daemonsets, set `logsCollector.enabled: false` and route agent logs through your existing logging stack (the agent emits structured JSON to stdout).
+> Note: The `logs-collector` (fluentd) daemonset is **not** hardened by default — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, which makes non-root operation cluster-dependent. If your cluster enforces `runAsNonRoot` for daemonsets, set `logsCollector.enabled: false`. By default the agent will then ship its own logs in-process to the same `/api/v1/agent/logs` endpoint (controlled by `logsCollector.inProcessFallback`, default `true`), so Monte Carlo support retains visibility. To opt out of MC log shipping entirely and route agent logs through your own logging stack instead, also set `logsCollector.inProcessFallback: false` (the agent emits structured JSON to stdout).
 
 ### Resource Requests and Limits
 
@@ -219,11 +219,12 @@ The chart uses the [External Secrets Operator](https://external-secrets.io/) to 
 
 ### Logs Collector
 
-A Fluentd DaemonSet that tails agent container logs and forwards them to the orchestrator.
+A Fluentd DaemonSet that tails agent container logs and forwards them to the orchestrator. When the daemonset is disabled (e.g. for non-root cluster policies), the agent falls back to in-process shipping via the same endpoint — gated by `logsCollector.inProcessFallback`.
 
 | Property | Default |
 |---|---|
 | `logsCollector.enabled` | `true` |
+| `logsCollector.inProcessFallback` | `true` (in-process shipping when daemonset is disabled; set `false` to opt out of MC log shipping entirely) |
 | `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` |
 | `logsCollector.image.repository` | `fluent/fluentd-kubernetes-daemonset` |
 | `logsCollector.image.tag` | `v1.18-debian-forward-1` |

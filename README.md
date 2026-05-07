@@ -209,6 +209,19 @@ All properties below have defaults in the Helm templates and can be omitted from
 | `logsCollector.buffer.overflowAction` | `"block"` |
 | `logsCollector.buffer.retryMaxInterval` | `"30s"` |
 
+##### In-process fallback
+
+When `logsCollector.enabled: false` (e.g. for non-root cluster policies — fluentd needs root to tail host log files), the agent ships its own logs in-process to the same `/api/v1/agent/logs` endpoint. Records are reshaped to the same `{timestamp, message, instance_id}` wire format the daemonset uses, so the backend sees them identically.
+
+| Property | Default |
+|---|---|
+| `logsCollector.inProcessFallback` | `true` |
+| `MCD_IN_PROCESS_LOGS_LEVEL` (env) | `INFO` (set on the agent container if you need a different threshold) |
+| Buffer size | 10000 records (drops oldest on overflow; surfaces a synthetic warning on the next flush) |
+| Flush cadence | Reuses the existing "Logs sender" timer (300s by default) — no separate timer |
+| Persistence | None — buffer is in-memory; the agent flushes synchronously on graceful shutdown |
+
+To opt out of MC log shipping entirely and let your own logging stack (CloudWatch, Splunk, Azure Monitor, etc.) own log forwarding from the agent's stdout, set both `logsCollector.enabled: false` and `logsCollector.inProcessFallback: false`.
 
 #### Metrics Collector (`metricsCollector`)
 
@@ -323,4 +336,4 @@ kubectl get all -n mcd-agent
 - **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
 - **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
 - **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
-- **Log Collection:** The logs collector run as DaemonSets. Enabled by default in the local values. Set `logsCollector.enabled: false` in `values.yaml` and run `helm upgrade` to disable them. Both require the `mcd-agent-token-secret` to authenticate with the orchestrator.
+- **Log Collection:** The logs collector runs as a DaemonSet, enabled by default in the local values. Set `logsCollector.enabled: false` and run `helm upgrade` to disable it; the agent will fall back to in-process shipping over the same endpoint (controlled by `logsCollector.inProcessFallback`, default `true`). To stop MC log shipping entirely, also set `logsCollector.inProcessFallback: false`. Both paths require the `mcd-agent-token-secret` to authenticate with the orchestrator.

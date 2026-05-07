@@ -116,3 +116,8 @@ class InProcessLogsService(BaseLogsService):
 
     def get_logs(self, limit: int) -> List[Dict[str, Any]]:
         return self._handler.drain(limit)
+
+    def close(self) -> None:
+        """Detach the handler from the root logger and release resources."""
+        logging.getLogger().removeHandler(self._handler)
+        self._handler.close()

@@ -122,6 +122,20 @@ class InProcessLogShippingHandlerTests(TestCase):
 
 
 class InProcessLogsServiceTests(TestCase):
+    def test_close_detaches_handler_from_root_logger(self):
+        handler = InProcessLogShippingHandler(instance_id="i")
+        service = InProcessLogsService(handler)
+        root = logging.getLogger()
+        root.addHandler(handler)
+        try:
+            self.assertIn(handler, root.handlers)
+            service.close()
+            self.assertNotIn(handler, root.handlers)
+        finally:
+            # Defensive cleanup if the assertion fired before close ran.
+            if handler in root.handlers:
+                root.removeHandler(handler)
+
     def test_get_logs_drains_handler_buffer(self):
         handler = InProcessLogShippingHandler(instance_id="i")
         service = InProcessLogsService(handler)

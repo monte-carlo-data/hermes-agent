@@ -221,6 +221,9 @@ class OnPremService(BaseEgressAgentService):
             except Exception:
                 logger.exception("Failed to flush in-process logs during shutdown")
         super().stop()
+        # Detach handler so post-shutdown logs don't fill an undrained buffer.
+        if isinstance(self._logs_service, InProcessLogsService):
+            self._logs_service.close()
 
     @staticmethod
     def _setup_in_process_log_shipping(
