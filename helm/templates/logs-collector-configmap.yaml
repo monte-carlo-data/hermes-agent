@@ -82,9 +82,11 @@ data:
       http_method post
       content_type application/json
 
+      # Credentials come from files (written by the extract-credentials init
+      # container), not env vars — keeps tokens out of /proc/<pid>/environ.
       headers {
-        "x-mcd-id"    : "#{ENV['MCD_ID']}",
-        "x-mcd-token" : "#{ENV['MCD_TOKEN']}"
+        "x-mcd-id"    : "#{File.read('/shared/mcd_id').chomp}",
+        "x-mcd-token" : "#{File.read('/shared/mcd_token').chomp}"
       }
 
       retryable_response_codes [503]
