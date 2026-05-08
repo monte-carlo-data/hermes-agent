@@ -1,4 +1,25 @@
 {{/*
+Log shipping mode validation. Fails on the legacy two-flag keys (renamed to
+the `logShipping` enum) and rejects unknown enum values. Also rejects
+in-process log levels outside a curated allowlist — DEBUG would surface
+third-party-library content (request bodies, tokens) into shipped logs.
+*/}}
+{{- define "hermes.logShipping.validate" -}}
+{{- if hasKey .Values.logsCollector "enabled" -}}
+{{- fail "logsCollector.enabled has been replaced by the top-level `logShipping` setting. Use `logShipping: fluentd` (was `logsCollector.enabled: true`) or `logShipping: none` (was `logsCollector.enabled: false`, which left the agent with no log shipping). To opt into the new in-process shipper instead, set `logShipping: in-process`. See helm/README.md." -}}
+{{- end -}}
+{{- if not (has .Values.logShipping (list "in-process" "fluentd" "none")) -}}
+{{- fail (printf "logShipping must be one of: in-process, fluentd, none (got: %q)" (toString .Values.logShipping)) -}}
+{{- end -}}
+{{- if .Values.inProcessLogs }}
+{{- $level := .Values.inProcessLogs.logLevel | default "INFO" -}}
+{{- if not (has $level (list "INFO" "WARNING" "WARN" "ERROR" "CRITICAL")) -}}
+{{- fail (printf "inProcessLogs.logLevel must be one of: INFO, WARNING, WARN, ERROR, CRITICAL (got: %q). DEBUG is intentionally excluded — it surfaces third-party-library content into shipped logs." $level) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Firewall CA — shared helpers for TLS inspection support.
 Used by the agent deployment and both collector daemonsets.
 */}}

@@ -178,37 +178,28 @@ curl http://localhost:8080/api/v1/test/health
 
 ### Observability — Log Collection
 
-The Helm chart deploys an optional **DaemonSets** that run on every node in the cluster. Toggled via `values.yaml` and authenticate in orchestrator using `x-mcd-id` / `x-mcd-token` headers, extracted at startup from the `mcd-agent-token-secret` Kubernetes Secret (`contents.json` → `mcd_id` + `mcd_token`).
+The Helm chart can ship agent logs to the orchestrator (`/api/v1/agent/logs`) one of two ways, selected by the top-level `logShipping` value:
 
-#### Logs Collector (`logsCollector`)
+| `logShipping` | What runs | Cluster requirements |
+|---|---|---|
+| `in-process` (default) | The agent buffers its own logs in-process and POSTs them to the orchestrator. | None beyond the agent itself — works on clusters that disallow root pods. |
+| `fluentd` | A fluentd DaemonSet (`logs-collector`) tails container log files from each node and forwards them to the same endpoint. | Requires root pods (host log paths are root-owned). |
+| `none` | No MC log shipping. The agent emits structured JSON to stdout. | Bring your own logging stack. |
 
-| | |
-|---|---|
-| **Toggle** | `logsCollector.enabled: true\|false` |
-| **Image** | `fluent/fluentd:v1.18-1` (configurable via `logsCollector.image`) |
-| **How it works** | Uses [Fluentd](https://www.fluentd.org/) to tail container log files from the host (`/var/log/containers/*_mcd-agent_*.log`). Runs as root (`runAsUser: 0`) to read host log files. Parses the CRI log format, transforms each line into `{"timestamp": "...", "message": "..."}`, and POSTs JSON arrays to the orchestrator. |
-| **Flush interval** | Every `5m` by default (`logsCollector.buffer.flushInterval`). Fluentd buffers logs to disk and flushes in batches. |
-| **Log level filter** | Optional — set `logsCollector.logLevel` to a regex (e.g. `"WARN\|ERROR\|CRITICAL"`) to only forward matching lines. Omit or leave empty to send all logs. |
-| **Endpoint** | `logsCollector.output.endpoint` → `POST /api/v1/agent/logs` |
-| **Buffer settings** | Configurable chunk size (`8MB`), total limit (`512MB`), retry with exponential backoff (up to `30s`). See `logsCollector.buffer.*` in `values.yaml`. |
+Both shipping modes authenticate to the orchestrator with `x-mcd-id` / `x-mcd-token` headers extracted at startup from the `mcd-agent-token-secret` Kubernetes Secret (`contents.json` → `mcd_id` + `mcd_token`).
 
-##### Configuration defaults
-
-All properties below have defaults in the Helm templates and can be omitted from `values.yaml` unless you need to override them.
+#### `logShipping: in-process`
 
 | Property | Default |
 |---|---|
-| `logsCollector.logLevel` | `"WARN\|WARNING\|ERROR\|CRITICAL"` |
-| `logsCollector.image.repository` | `"fluent/fluentd"` |
-| `logsCollector.image.tag` | `"v1.18-1"` |
-| `logsCollector.buffer.flushInterval` | `"5m"` |
-| `logsCollector.buffer.retryMaxTimes` | `5` |
-| `logsCollector.buffer.retryWait` | `"1s"` |
-| `logsCollector.buffer.chunkLimitSize` | `"8MB"` |
-| `logsCollector.buffer.totalLimitSize` | `"512MB"` |
-| `logsCollector.buffer.overflowAction` | `"block"` |
-| `logsCollector.buffer.retryMaxInterval` | `"30s"` |
+| `inProcessLogs.logLevel` (chart) | `INFO` — rendered as `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` (`DEBUG` excluded to avoid leaking third-party-library content) |
+| Buffer size | 10000 records (drops oldest on overflow; surfaces a synthetic warning on the next flush) |
+| Flush cadence | Reuses the existing "Logs sender" timer (300s by default) — no separate timer |
+| Persistence | None — buffer is in-memory; the agent flushes synchronously on graceful shutdown |
 
+Records are emitted as `{timestamp, message}`. The agent's `instance_id` is attached to the request via the `x-mcd-agent-instance-id` header (set by `BackendClient` on every call) and stamped onto each record orchestrator-side, so backend visibility matches the fluentd path.
+
+Set `logShipping: fluentd` to opt into the fluentd DaemonSet path instead — it tails container log files from the host and POSTs the same shape to `/api/v1/agent/logs`, but requires root pods (host log paths are root-owned). Tunables live under `logsCollector.*`; see [helm/README.md](helm/README.md#log-shipping) for the full property table.
 
 #### Metrics Collector (`metricsCollector`)
 
@@ -230,43 +221,30 @@ All properties below have defaults in the Helm templates and can be omitted from
 | `metricsCollector.image.repository` | `"otel/opentelemetry-collector-k8s"` |
 | `metricsCollector.image.tag` | `"0.147.0"` |
 
-#### Checking DaemonSet logs
+#### Checking DaemonSet logs and status
 
 ```bash
-# Logs collector
-kubectl logs -n mcd-agent -l app=logs-collector --tail=50
-kubectl logs -n mcd-agent -l app=logs-collector -f          # follow in real-time
-
-# Metrics collector
 kubectl logs -n mcd-agent -l app=metrics-collector --tail=50
-kubectl logs -n mcd-agent -l app=metrics-collector -f
-```
+kubectl logs -n mcd-agent -l app=metrics-collector -f          # follow in real-time
 
-#### Checking DaemonSet status
-
-```bash
 kubectl get daemonsets -n mcd-agent
-kubectl describe daemonset logs-collector -n mcd-agent
 kubectl describe daemonset metrics-collector -n mcd-agent
 ```
+
+If you've opted into `logShipping: fluentd`, swap `metrics-collector` for `logs-collector` to inspect the fluentd pods.
 
 ### Restarting & Updating
 
 ```bash
-# Restart all components after config/secret changes
-kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
-kubectl rollout restart daemonset/logs-collector -n mcd-agent
-kubectl rollout restart daemonset/metrics-collector -n mcd-agent
-
-# Or restart everything at once
-kubectl rollout restart daemonset/logs-collector daemonset/metrics-collector deployment/mcd-agent-deployment -n mcd-agent
+# Restart the agent and the metrics-collector daemonset after config/secret changes
+kubectl rollout restart deployment/mcd-agent-deployment daemonset/metrics-collector -n mcd-agent
 
 # Apply Helm values changes (no image rebuild needed)
 helm upgrade --install hermes-agent ./helm \
   -f environments/local/values.yaml \
   --namespace mcd-agent
 
-# Scale down (pause) individual components
+# Scale down (pause) the agent
 kubectl scale deployment mcd-agent-deployment --replicas=0 -n mcd-agent
 # DaemonSets can't be scaled — disable them via values.yaml and re-run helm upgrade
 
@@ -323,4 +301,4 @@ kubectl get all -n mcd-agent
 - **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
 - **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
 - **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
-- **Log Collection:** The logs collector run as DaemonSets. Enabled by default in the local values. Set `logsCollector.enabled: false` in `values.yaml` and run `helm upgrade` to disable them. Both require the `mcd-agent-token-secret` to authenticate with the orchestrator.
+- **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: fluentd` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes require the `mcd-agent-token-secret` to authenticate with the orchestrator.

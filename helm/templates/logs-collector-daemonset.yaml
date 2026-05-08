@@ -1,4 +1,5 @@
-{{- if .Values.logsCollector.enabled }}
+{{- include "hermes.logShipping.validate" . }}
+{{- if eq .Values.logShipping "fluentd" }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -18,10 +19,39 @@ spec:
         checksum/config: {{ include (print $.Template.BasePath "/logs-collector-configmap.yaml") . | sha256sum }}
     spec:
       serviceAccountName: mcd-agent-service-account
-      {{- if include "hermes.firewallCa.enabled" . }}
       initContainers:
+        {{- if include "hermes.firewallCa.enabled" . }}
         {{- include "hermes.firewallCa.initContainer" . | nindent 8 }}
-      {{- end }}
+        {{- end }}
+        # Split contents.json into two files so fluentd can read tokens
+        # without going through env vars (which leak via /proc/<pid>/environ
+        # and bake the substituted command into the pod spec / etcd).
+        # Mirrors the pattern used by the metrics-collector daemonset.
+        - name: extract-credentials
+          image: busybox:1.37
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+          command:
+            - /bin/sh
+            - -c
+            - |
+              sed -n 's/.*"mcd_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                /etc/secrets/mcd-agent-token/contents.json | tr -d '\n' > /shared/mcd_id
+              sed -n 's/.*"mcd_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+                /etc/secrets/mcd-agent-token/contents.json | tr -d '\n' > /shared/mcd_token
+          volumeMounts:
+            - name: mcd-agent-token-secret
+              mountPath: /etc/secrets/mcd-agent-token
+              readOnly: true
+            - name: shared-credentials
+              mountPath: /shared
       containers:
         - name: logs-collector
           image: "{{ .Values.logsCollector.image.repository | default "fluent/fluentd" }}:{{ .Values.logsCollector.image.tag | default "v1.18-1" }}"
@@ -30,24 +60,12 @@ spec:
           command:
             - /bin/sh
             - -c
-            - |
-              if [ "$LOGGING_ENABLED" = "false" ]; then
-                echo "Logging disabled. Exiting."
-                sleep infinity
-              else
-                # Extract credentials from JSON secret and export as env vars.
-                # Fluentd v1.18+ natively interpolates #{ENV['...']} in headers.
-                export MCD_ID=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_id']")
-                export MCD_TOKEN=$(ruby -rjson -e "puts JSON.parse(File.read('/etc/secrets/mcd-agent-token/contents.json'))['mcd_token']")
-                exec fluentd -c /fluentd/etc/fluent.conf
-              fi
+            - exec fluentd -c /fluentd/etc/fluent.conf
+          {{- if include "hermes.firewallCa.enabled" . }}
           env:
-            - name: LOGGING_ENABLED
-              value: {{ .Values.logsCollector.enabled | quote }}
-            {{- if include "hermes.firewallCa.enabled" . }}
             - name: SSL_CERT_FILE
               value: /etc/ssl/combined-ca/ca-bundle.crt
-            {{- end }}
+          {{- end }}
           {{- with .Values.logsCollector.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -69,6 +87,9 @@ spec:
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            - name: shared-credentials
+              mountPath: /shared
+              readOnly: true
             {{- if include "hermes.firewallCa.enabled" . }}
             {{- include "hermes.firewallCa.volumeMounts" . | nindent 12 }}
             {{- end }}
@@ -89,6 +110,8 @@ spec:
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        - name: shared-credentials
+          emptyDir: {}
         {{- if include "hermes.firewallCa.enabled" . }}
         {{- include "hermes.firewallCa.volumes" . | nindent 8 }}
         {{- end }}

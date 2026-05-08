@@ -58,8 +58,20 @@ autoscaling:
   # Optional — leave null to autoscale on CPU only.
   targetMemoryUtilizationPercentage: null
 
+# Log shipping mode — one of:
+#   in-process — agent buffers and ships its own logs to /api/v1/agent/logs
+#                (works in any cluster, including non-root-only)
+#   fluentd    — fluentd DaemonSet tails container logs (requires root pods)
+#   none       — disable MC log shipping; rely on your own logging stack
+logShipping: in-process
+
+# Tunables for the in-process shipper. Only consulted when
+# logShipping == "in-process". DEBUG is rejected by validation — see
+# helm/templates/_helpers.tpl.
+inProcessLogs:
+  logLevel: "INFO"
+
 logsCollector:
-  enabled: true
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
     # The -forward- variant is the most minimal kubernetes-daemonset image

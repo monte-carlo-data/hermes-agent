@@ -92,3 +92,26 @@ class OnPremServiceTests(TestCase):
             )
         )
         get_types_mock.assert_called_once_with("3456")
+
+    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def test_in_process_logs_enabled_wires_logs_service(self, setup_mock):
+        # Drives the activation branch of _build_logs_service: when
+        # MCD_IN_PROCESS_LOGS_ENABLED=true, setup_in_process_log_shipping must
+        # be called and its return value stored on the parent _logs_service.
+        import logging
+
+        sentinel_logs_service = Mock()
+        setup_mock.return_value = sentinel_logs_service
+        with patch.dict(
+            "os.environ",
+            {
+                "MCD_IN_PROCESS_LOGS_ENABLED": "true",
+                "MCD_IN_PROCESS_LOGS_LEVEL": "WARNING",
+            },
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        setup_mock.assert_called_once_with(level=logging.WARNING)
+        self.assertIs(service._logs_service, sentinel_logs_service)

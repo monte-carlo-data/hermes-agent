@@ -12,6 +12,10 @@ from apollo.egress.agent.service.base_egress_service import (
     OperationMatchingType,
 )
 from apollo.egress.agent.service.file_login_token_provider import FileLoginTokenProvider
+from apollo.egress.agent.service.in_process_logs_service import (
+    setup_in_process_log_shipping,
+)
+from apollo.egress.agent.service.logs_service import BaseLogsService
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
@@ -46,13 +50,15 @@ class OnPremService(BaseEgressAgentService):
         else:
             logger.info("Getting MCD token from env vars")
             login_token_provider = LocalLoginTokenProvider()
+
+        logs_service = self._build_logs_service()
         super().__init__(
             backend_service_url=_BACKEND_SERVICE_URL,
             platform="Generic",
             service_name="Generic Agent",
             config_manager=config_manager,
-            skip_logs=True,
-            logs_service=None,
+            skip_logs=logs_service is None,
+            logs_service=logs_service,
             storage_service=EmptyStorageService(),
             metrics_service=MetricsService(),
             login_token_provider=login_token_provider,
@@ -196,6 +202,21 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    @staticmethod
+    def _build_logs_service() -> Optional[BaseLogsService]:
+        # The helm chart sets MCD_IN_PROCESS_LOGS_ENABLED=true on the agent
+        # container when `logShipping: in-process`; the level is sourced from
+        # the chart's `inProcessLogs.logLevel` value (default INFO, allowlist
+        # gated against DEBUG in the helm validator). Reads are inlined here
+        # rather than at module import so tests can patch the environment.
+        if os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() != "true":
+            return None
+        level_name = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
+        level = logging.getLevelName(level_name)
+        if not isinstance(level, int):
+            level = logging.INFO
+        return setup_in_process_log_shipping(level=level)
 
     def _get_version(self) -> str:
         return VERSION
