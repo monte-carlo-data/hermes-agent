@@ -22,8 +22,12 @@ container:
 # Kubernetes Secrets are created manually via kubectl instead.
 skipExternalSecrets: true
 
+# Match the chart default explicitly so local dev surfaces the mode choice.
+logShipping: in-process
+
 # k3s containerd uses Docker log format — symlinks under
 # /var/log/pods/ resolve to /var/lib/docker/containers/.
+# Only consulted when logShipping is set to "fluentd".
 logsCollector:
   containerRuntimeLogPath: "/var/lib/docker/containers"
 

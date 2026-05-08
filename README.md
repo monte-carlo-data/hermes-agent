@@ -183,7 +183,7 @@ The Helm chart can ship agent logs to the orchestrator (`/api/v1/agent/logs`) on
 | `logShipping` | What runs | Cluster requirements |
 |---|---|---|
 | `in-process` (default) | The agent buffers its own logs in-process and POSTs them to the orchestrator. | None beyond the agent itself — works on clusters that disallow root pods. |
-| `daemonset` | A fluentd DaemonSet (`logs-collector`) tails container log files from each node and forwards them to the same endpoint. | Requires root pods (host log paths are root-owned). |
+| `fluentd` | A fluentd DaemonSet (`logs-collector`) tails container log files from each node and forwards them to the same endpoint. | Requires root pods (host log paths are root-owned). |
 | `none` | No MC log shipping. The agent emits structured JSON to stdout. | Bring your own logging stack. |
 
 Both shipping modes authenticate to the orchestrator with `x-mcd-id` / `x-mcd-token` headers extracted at startup from the `mcd-agent-token-secret` Kubernetes Secret (`contents.json` → `mcd_id` + `mcd_token`).
@@ -192,14 +192,14 @@ Both shipping modes authenticate to the orchestrator with `x-mcd-id` / `x-mcd-to
 
 | Property | Default |
 |---|---|
-| `MCD_IN_PROCESS_LOGS_LEVEL` (env) | `INFO` — set on the agent container to raise/lower the threshold |
+| `inProcessLogs.logLevel` (chart) | `INFO` — rendered as `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` (`DEBUG` excluded to avoid leaking third-party-library content) |
 | Buffer size | 10000 records (drops oldest on overflow; surfaces a synthetic warning on the next flush) |
 | Flush cadence | Reuses the existing "Logs sender" timer (300s by default) — no separate timer |
 | Persistence | None — buffer is in-memory; the agent flushes synchronously on graceful shutdown |
 
-Records are emitted as `{timestamp, message}`. The agent's `instance_id` is attached to the request via the `x-mcd-agent-instance-id` header (set by `BackendClient` on every call) and stamped onto each record orchestrator-side, so backend visibility matches the daemonset path.
+Records are emitted as `{timestamp, message}`. The agent's `instance_id` is attached to the request via the `x-mcd-agent-instance-id` header (set by `BackendClient` on every call) and stamped onto each record orchestrator-side, so backend visibility matches the fluentd path.
 
-Set `logShipping: daemonset` to opt into the fluentd DaemonSet path instead — it tails container log files from the host and POSTs the same shape to `/api/v1/agent/logs`, but requires root pods (host log paths are root-owned). Tunables live under `logsCollector.*`; see [helm/README.md](helm/README.md#log-shipping) for the full property table.
+Set `logShipping: fluentd` to opt into the fluentd DaemonSet path instead — it tails container log files from the host and POSTs the same shape to `/api/v1/agent/logs`, but requires root pods (host log paths are root-owned). Tunables live under `logsCollector.*`; see [helm/README.md](helm/README.md#log-shipping) for the full property table.
 
 #### Metrics Collector (`metricsCollector`)
 
@@ -231,7 +231,7 @@ kubectl get daemonsets -n mcd-agent
 kubectl describe daemonset metrics-collector -n mcd-agent
 ```
 
-If you've opted into `logShipping: daemonset`, swap `metrics-collector` for `logs-collector` to inspect the fluentd pods.
+If you've opted into `logShipping: fluentd`, swap `metrics-collector` for `logs-collector` to inspect the fluentd pods.
 
 ### Restarting & Updating
 
@@ -301,4 +301,4 @@ kubectl get all -n mcd-agent
 - **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
 - **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
 - **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
-- **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: daemonset` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes require the `mcd-agent-token-secret` to authenticate with the orchestrator.
+- **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: fluentd` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes require the `mcd-agent-token-secret` to authenticate with the orchestrator.

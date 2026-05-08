@@ -1,4 +1,5 @@
-{{- if eq .Values.logShipping "daemonset" }}
+{{- include "hermes.logShipping.validate" . }}
+{{- if eq .Values.logShipping "fluentd" }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

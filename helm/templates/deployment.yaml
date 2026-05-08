@@ -85,6 +85,10 @@ spec:
               value: /etc/secrets/mcd-agent-token/contents.json
             - name: MCD_IN_PROCESS_LOGS_ENABLED
               value: {{ eq .Values.logShipping "in-process" | quote }}
+            {{- if eq .Values.logShipping "in-process" }}
+            - name: MCD_IN_PROCESS_LOGS_LEVEL
+              value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
+            {{- end }}
             {{- if .Values.container.storageEndpointUrl }}
             - name: MCD_STORAGE_ENDPOINT_URL
               value: {{ .Values.container.storageEndpointUrl | quote }}

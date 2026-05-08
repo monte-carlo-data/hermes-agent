@@ -31,15 +31,6 @@ _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
 
-# In-process log shipping kicks in when the helm chart sets this true — which it
-# does only when the logs-collector daemonset is disabled AND the
-# logsCollector.inProcessFallback chart value is true (default).
-_IN_PROCESS_LOGS_ENABLED = (
-    os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() == "true"
-)
-_level = logging.getLevelName(os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper())
-_IN_PROCESS_LOGS_LEVEL = _level if isinstance(_level, int) else logging.INFO
-
 logger = logging.getLogger(__name__)
 
 
@@ -214,9 +205,18 @@ class OnPremService(BaseEgressAgentService):
 
     @staticmethod
     def _build_logs_service() -> Optional[BaseLogsService]:
-        if _IN_PROCESS_LOGS_ENABLED:
-            return setup_in_process_log_shipping(level=_IN_PROCESS_LOGS_LEVEL)
-        return None
+        # The helm chart sets MCD_IN_PROCESS_LOGS_ENABLED=true on the agent
+        # container when `logShipping: in-process`; the level is sourced from
+        # the chart's `inProcessLogs.logLevel` value (default INFO, allowlist
+        # gated against DEBUG in the helm validator). Reads are inlined here
+        # rather than at module import so tests can patch the environment.
+        if os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() != "true":
+            return None
+        level_name = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
+        level = logging.getLevelName(level_name)
+        if not isinstance(level, int):
+            level = logging.INFO
+        return setup_in_process_log_shipping(level=level)
 
     def _get_version(self) -> str:
         return VERSION

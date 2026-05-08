@@ -7,7 +7,7 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | Resource | Name | Conditional |
 |---|---|---|
 | Deployment | `mcd-agent-deployment` | Always |
-| DaemonSet | `logs-collector` | `logShipping == "daemonset"` |
+| DaemonSet | `logs-collector` | `logShipping == "fluentd"` |
 | DaemonSet | `metrics-collector` | `metricsCollector.enabled` |
 | Namespace | configurable (default `mcd-agent`) | Always |
 | ServiceAccount | `mcd-agent-service-account` | Always |
@@ -224,15 +224,16 @@ Top-level `logShipping` selects how agent logs reach Monte Carlo. Pick one:
 | Mode | What it does |
 |---|---|
 | `in-process` (default) | The agent buffers its own logs and POSTs them to `/api/v1/agent/logs`. Works in any cluster — no DaemonSet, no host paths, no root containers. |
-| `daemonset` | A fluentd DaemonSet tails container logs from the host and forwards them to the same endpoint. Requires root pods (host log paths are root-owned). |
+| `fluentd` | A fluentd DaemonSet tails container logs from the host and forwards them to the same endpoint. Requires root pods (host log paths are root-owned). |
 | `none` | No MC log shipping. The agent emits structured JSON to stdout — forward it through your own stack (CloudWatch, Splunk, Azure Monitor, etc.). |
 
-The `daemonset` mode honours the `logsCollector.*` settings below. The other modes ignore them.
+The `fluentd` mode honours the `logsCollector.*` settings below. The other modes ignore them.
 
 | Property | Default |
 |---|---|
 | `logShipping` | `in-process` |
-| `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` (daemonset only) |
+| `inProcessLogs.logLevel` | `"INFO"` (in-process only; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` — `DEBUG` is excluded to avoid leaking third-party-library content) |
+| `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` (fluentd only) |
 | `logsCollector.image.repository` | `fluent/fluentd-kubernetes-daemonset` |
 | `logsCollector.image.tag` | `v1.18-debian-forward-1` |
 | `logsCollector.buffer.flushInterval` | `5m` |
@@ -240,7 +241,7 @@ The `daemonset` mode honours the `logsCollector.*` settings below. The other mod
 | `logsCollector.buffer.totalLimitSize` | `512MB` |
 | `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
-The agent-side in-process shipper threshold defaults to `INFO` and can be raised via the `MCD_IN_PROCESS_LOGS_LEVEL` env var on the agent container.
+When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
 
 ### Metrics Collector
 

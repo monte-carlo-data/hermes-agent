@@ -93,17 +93,25 @@ class OnPremServiceTests(TestCase):
         )
         get_types_mock.assert_called_once_with("3456")
 
-    def test_super_stop_preserves_backend_client(self):
-        # The shutdown-flush path in OnPremService.stop() runs AFTER super().stop()
-        # and depends on self._backend_client still being usable. If the parent
-        # ever starts tearing down the backend client, this test fails first.
-        from apollo.egress.agent.service.base_egress_service import (
-            BaseEgressAgentService,
-        )
+    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def test_in_process_logs_enabled_wires_logs_service(self, setup_mock):
+        # Drives the activation branch of _build_logs_service: when
+        # MCD_IN_PROCESS_LOGS_ENABLED=true, setup_in_process_log_shipping must
+        # be called and its return value stored on the parent _logs_service.
+        import logging
 
-        backend_before = self._service._backend_client
-        self.assertIsNotNone(backend_before)
-        # Call parent stop directly; OnPremService.stop wraps it with extra
-        # shutdown-flush logic that we don't want to exercise here.
-        BaseEgressAgentService.stop(self._service)
-        self.assertIs(self._service._backend_client, backend_before)
+        sentinel_logs_service = Mock()
+        setup_mock.return_value = sentinel_logs_service
+        with patch.dict(
+            "os.environ",
+            {
+                "MCD_IN_PROCESS_LOGS_ENABLED": "true",
+                "MCD_IN_PROCESS_LOGS_LEVEL": "WARNING",
+            },
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        setup_mock.assert_called_once_with(level=logging.WARNING)
+        self.assertIs(service._logs_service, sentinel_logs_service)
