@@ -1,3 +1,4 @@
+import os
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
@@ -14,9 +15,13 @@ class OnPremServiceTests(TestCase):
             persistence=LocalConfig(prefix="MCD")
         )
         self._logging_utils = Mock()
-        self._service = OnPremService(
-            config_manager=self._config_manager, logging_utils=self._logging_utils
-        )
+        # Disable in-process log shipping for the bulk of these tests so
+        # construction doesn't attach a real log handler to the root logger.
+        # The dedicated logs-wiring tests opt back in explicitly.
+        with patch.dict("os.environ", {"MCD_IN_PROCESS_LOGS_ENABLED": "false"}):
+            self._service = OnPremService(
+                config_manager=self._config_manager, logging_utils=self._logging_utils
+            )
 
     @patch("hermes.agent.service.on_prem_service.Agent.validate_tcp_open_connection")
     def test_network_open(self, open_connection_mock):
@@ -115,3 +120,31 @@ class OnPremServiceTests(TestCase):
             )
         setup_mock.assert_called_once_with(level=logging.WARNING)
         self.assertIs(service._logs_service, sentinel_logs_service)
+
+    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def test_in_process_logs_default_is_enabled(self, setup_mock):
+        # When MCD_IN_PROCESS_LOGS_ENABLED is unset, log shipping must still
+        # activate — Docker users without an explicit override should get logs
+        # out of the box. The previous "false" default left them silent.
+        sentinel_logs_service = Mock()
+        setup_mock.return_value = sentinel_logs_service
+        with patch.dict("os.environ", {}, clear=False):
+            os.environ.pop("MCD_IN_PROCESS_LOGS_ENABLED", None)
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        setup_mock.assert_called_once()
+        self.assertIs(service._logs_service, sentinel_logs_service)
+
+    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def test_in_process_logs_explicitly_disabled(self, setup_mock):
+        # The opt-out path: anyone who genuinely doesn't want log shipping can
+        # still suppress it with MCD_IN_PROCESS_LOGS_ENABLED=false.
+        with patch.dict("os.environ", {"MCD_IN_PROCESS_LOGS_ENABLED": "false"}):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        setup_mock.assert_not_called()
+        self.assertIsNone(service._logs_service)
