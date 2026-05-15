@@ -205,12 +205,14 @@ class OnPremService(BaseEgressAgentService):
 
     @staticmethod
     def _build_logs_service() -> Optional[BaseLogsService]:
-        # The helm chart sets MCD_IN_PROCESS_LOGS_ENABLED=true on the agent
-        # container when `logShipping: in-process`; the level is sourced from
-        # the chart's `inProcessLogs.logLevel` value (default INFO, allowlist
-        # gated against DEBUG in the helm validator). Reads are inlined here
-        # rather than at module import so tests can patch the environment.
-        if os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "false").lower() != "true":
+        # Default ON: Docker users get log shipping out of the box, matching
+        # the helm chart's `logShipping: in-process` default. Helm sets this
+        # env var explicitly per the chart value, so this default only affects
+        # non-helm deployments. The level is sourced from
+        # MCD_IN_PROCESS_LOGS_LEVEL (default INFO, allowlist gated against
+        # DEBUG in the helm validator). Reads are inlined here rather than at
+        # module import so tests can patch the environment.
+        if os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "true").lower() != "true":
             return None
         level_name = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()
         level = logging.getLevelName(level_name)
