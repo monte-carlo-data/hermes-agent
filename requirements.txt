@@ -203,7 +203,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.26.2
     # via dataclasses-json
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.4
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.5
     # via -r requirements.in
 more-itertools==11.0.2
     # via simple-salesforce
@@ -402,7 +402,7 @@ tzlocal==5.3.1
     # via trino
 uritemplate==4.2.0
     # via google-api-python-client
-urllib3==2.6.3
+urllib3==2.7.0
     # via
     #   agent-common
     #   botocore
