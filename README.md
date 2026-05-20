@@ -142,6 +142,19 @@ kubectl create secret generic mcd-agent-token-secret \
   --from-literal=contents.json='{"mcd_id":"<id>","mcd_token":"<secret>"}'
 ```
 
+#### 6a-alt — Use OAuth authentication (alternative to token secret)
+
+Instead of the key/token secret, you can authenticate via OAuth `client_credentials`. Create a secret with your OAuth credentials:
+
+```bash
+kubectl create secret generic mcd-oauth-secret \
+  --namespace mcd-agent \
+  --from-literal=client_id='<your-client-id>' \
+  --from-literal=client_secret='<your-client-secret>'
+```
+
+Then add `--set oauth.existingSecret=mcd-oauth-secret` to your `helm upgrade` command. When OAuth is configured, it takes precedence over the token secret. See the [Helm chart README](helm/README.md#oauth-authentication) for details.
+
 #### 6b — Create the integrations secret
 
 For testing PostgreSQL connectivity, create a secret with the connection details. The key name (e.g. `pg_local.json`) must match the `file_path` configured in the Monte Carlo connection settings.
@@ -186,7 +199,7 @@ The Helm chart can ship agent logs to the orchestrator (`/api/v1/agent/logs`) on
 | `fluentd` | A fluentd DaemonSet (`logs-collector`) tails container log files from each node and forwards them to the same endpoint. | Requires root pods (host log paths are root-owned). |
 | `none` | No MC log shipping. The agent emits structured JSON to stdout. | Bring your own logging stack. |
 
-Both shipping modes authenticate to the orchestrator with `x-mcd-id` / `x-mcd-token` headers extracted at startup from the `mcd-agent-token-secret` Kubernetes Secret (`contents.json` → `mcd_id` + `mcd_token`).
+Both shipping modes authenticate to the orchestrator using whichever authentication method is configured — OAuth Bearer tokens (when `oauth.existingSecret` is set) or `x-mcd-id` / `x-mcd-token` headers from the `mcd-agent-token-secret` Secret.
 
 #### `logShipping: in-process`
 

@@ -243,6 +243,26 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 
 When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
 
+### OAuth Authentication
+
+The agent supports OAuth 2.0 `client_credentials` authentication as an alternative to the
+key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires Bearer tokens
+and uses them for all backend communication. OAuth takes precedence over key/token auth when
+both are configured — this makes migration easy (deploy with both, then remove the token secret).
+
+| Property | Description | Default |
+|---|---|---|
+| `oauth.existingSecret` | Name of a pre-created K8s Secret containing `client_id` and `client_secret` keys | _(unset — OAuth disabled)_ |
+| `oauth.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
+
+The `existingSecret` must be a Kubernetes Secret in the same namespace as the agent, with two keys:
+- `client_id` — the OAuth client ID
+- `client_secret` — the OAuth client secret
+
+By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
+first hostname segment with `m2m`). Set `oauth.tokenEndpoint` only for custom or private Cognito
+deployments where the default derivation doesn't apply.
+
 ### Metrics Collector
 
 An OpenTelemetry Collector DaemonSet that scrapes container CPU and memory metrics from the Kubelet API.
