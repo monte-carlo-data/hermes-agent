@@ -156,10 +156,16 @@ class OnPremServiceTests(TestCase):
     @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
     @patch(
-        "hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", "test-secret"
+        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
+        return_value=("test-id", "test-secret"),
     )
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", "test-id")
-    def test_oauth_provider_selected_when_both_credentials_set(self, mock_oauth_cls):
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_provider_selected_when_file_path_set(
+        self, mock_read, mock_oauth_cls
+    ):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -169,6 +175,7 @@ class OnPremServiceTests(TestCase):
                 config_manager=self._config_manager,
                 logging_utils=self._logging_utils,
             )
+        mock_read.assert_called_once_with("/etc/secrets/mcd-oauth/credentials.json")
         mock_oauth_cls.assert_called_once_with(
             client_id="test-id",
             client_secret="test-secret",
@@ -180,10 +187,14 @@ class OnPremServiceTests(TestCase):
     @patch("hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", "/some/file")
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
     @patch(
-        "hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", "test-secret"
+        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
+        return_value=("test-id", "test-secret"),
     )
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", "test-id")
-    def test_oauth_takes_precedence_over_file_token(self, mock_oauth_cls):
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_takes_precedence_over_file_token(self, mock_read, mock_oauth_cls):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -202,10 +213,16 @@ class OnPremServiceTests(TestCase):
         "https://custom.example.com/oauth2/token",
     )
     @patch(
-        "hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", "test-secret"
+        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
+        return_value=("test-id", "test-secret"),
     )
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", "test-id")
-    def test_oauth_token_endpoint_override_passed_through(self, mock_oauth_cls):
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_token_endpoint_override_passed_through(
+        self, mock_read, mock_oauth_cls
+    ):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -222,45 +239,79 @@ class OnPremServiceTests(TestCase):
             token_endpoint="https://custom.example.com/oauth2/token",
         )
 
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", None)
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", "test-id")
-    def test_partial_oauth_config_raises_client_id_only(self):
-        with patch.dict(
-            "os.environ",
-            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
-        ):
-            with self.assertRaises(ValueError) as ctx:
-                OnPremService(
-                    config_manager=self._config_manager,
-                    logging_utils=self._logging_utils,
-                )
-        self.assertIn("MCD_OAUTH_CLIENT_ID", str(ctx.exception))
-        self.assertIn("MCD_OAUTH_CLIENT_SECRET", str(ctx.exception))
+    # ------------------------------------------------------------------
+    # OAuth credential file reading
+    # ------------------------------------------------------------------
 
-    @patch(
-        "hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", "test-secret"
-    )
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", None)
-    def test_partial_oauth_config_raises_client_secret_only(self):
-        with patch.dict(
-            "os.environ",
-            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
-        ):
-            with self.assertRaises(ValueError) as ctx:
-                OnPremService(
-                    config_manager=self._config_manager,
-                    logging_utils=self._logging_utils,
-                )
-        self.assertIn("MCD_OAUTH_CLIENT_ID", str(ctx.exception))
-        self.assertIn("MCD_OAUTH_CLIENT_SECRET", str(ctx.exception))
+    def test_oauth_file_missing_client_id_raises(self):
+        import json
+        import tempfile
 
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", None)
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", None)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"client_secret": "test-secret"}, f)
+            path = f.name
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                OnPremService._read_oauth_credentials(path)
+            self.assertIn("client_id", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_oauth_file_missing_client_secret_raises(self):
+        import json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"client_id": "test-id"}, f)
+            path = f.name
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                OnPremService._read_oauth_credentials(path)
+            self.assertIn("client_secret", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_oauth_file_not_found_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            OnPremService._read_oauth_credentials("/nonexistent/path/creds.json")
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_oauth_file_invalid_json_raises(self):
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            f.write("not json")
+            path = f.name
+        try:
+            with self.assertRaises(ValueError) as ctx:
+                OnPremService._read_oauth_credentials(path)
+            self.assertIn("not valid JSON", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_oauth_file_reads_credentials(self):
+        import json
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"client_id": "my-id", "client_secret": "my-secret"}, f)
+            path = f.name
+        try:
+            client_id, client_secret = OnPremService._read_oauth_credentials(path)
+            self.assertEqual(client_id, "my-id")
+            self.assertEqual(client_secret, "my-secret")
+        finally:
+            os.unlink(path)
+
+    # ------------------------------------------------------------------
+    # Fallback provider selection
+    # ------------------------------------------------------------------
+
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH", None)
     @patch(
         "hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", "/some/token/file"
     )
     def test_file_provider_when_no_oauth(self):
-        # Existing behavior: file provider when MCD_TOKEN_FILE_PATH is set and no OAuth
         with patch.dict(
             "os.environ",
             {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
@@ -276,10 +327,8 @@ class OnPremServiceTests(TestCase):
         self.assertIsInstance(service._login_token_provider, FileLoginTokenProvider)
 
     @patch("hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", None)
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", None)
-    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", None)
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH", None)
     def test_local_provider_when_no_oauth_no_file(self):
-        # Existing behavior: local provider when nothing else configured
         with patch.dict(
             "os.environ",
             {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},

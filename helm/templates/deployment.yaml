@@ -95,16 +95,8 @@ spec:
               value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
             {{- end }}
             {{- if .Values.oauth.existingSecret }}
-            - name: MCD_OAUTH_CLIENT_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.oauth.existingSecret }}
-                  key: client_id
-            - name: MCD_OAUTH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.oauth.existingSecret }}
-                  key: client_secret
+            - name: MCD_OAUTH_FILE_PATH
+              value: /etc/secrets/mcd-oauth/credentials.json
             {{- if .Values.oauth.tokenEndpoint }}
             - name: MCD_OAUTH_TOKEN_ENDPOINT
               value: {{ .Values.oauth.tokenEndpoint | quote }}
@@ -138,6 +130,10 @@ spec:
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            {{- else }}
+            - name: mcd-oauth-secret
+              mountPath: /etc/secrets/mcd-oauth
+              readOnly: true
             {{- end }}
             - name: mcd-integrations-secrets
               mountPath: /etc/secrets/integrations
@@ -153,6 +149,10 @@ spec:
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        {{- else }}
+        - name: mcd-oauth-secret
+          secret:
+            secretName: {{ .Values.oauth.existingSecret }}
         {{- end }}
         - name: mcd-integrations-secrets
           secret:

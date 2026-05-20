@@ -75,8 +75,9 @@ inProcessLogs:
 # authenticates to the Monte Carlo backend via Bearer tokens instead of
 # the key/token secret. OAuth takes precedence over MCD_TOKEN_FILE_PATH.
 #
-# existingSecret: name of a pre-created K8s Secret containing `client_id`
-#   and `client_secret` keys. All OAuth env vars are conditional on this.
+# existingSecret: name of a pre-created K8s Secret containing a
+#   `credentials.json` key with JSON: {"client_id": "...", "client_secret": "..."}
+#   The secret is mounted as a file (matching the token file pattern).
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.

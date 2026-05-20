@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from typing import Dict, Any, Callable, Optional, Tuple
@@ -28,8 +29,7 @@ _BACKEND_SERVICE_URL = os.getenv(
     "https://artemis.getmontecarlo.com:443",
 )
 _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
-_MCD_OAUTH_CLIENT_ID = os.getenv("MCD_OAUTH_CLIENT_ID")
-_MCD_OAUTH_CLIENT_SECRET = os.getenv("MCD_OAUTH_CLIENT_SECRET")
+_MCD_OAUTH_FILE_PATH = os.getenv("MCD_OAUTH_FILE_PATH")
 _MCD_OAUTH_TOKEN_ENDPOINT = os.getenv("MCD_OAUTH_TOKEN_ENDPOINT")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
@@ -46,21 +46,19 @@ class OnPremService(BaseEgressAgentService):
         instance_id: Optional[str] = None,
     ):
         logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
-        _oauth_client_id = _MCD_OAUTH_CLIENT_ID
-        _oauth_client_secret = _MCD_OAUTH_CLIENT_SECRET
 
-        if _oauth_client_id and _oauth_client_secret:
-            logger.info("Using OAuth client_credentials authentication")
+        if _MCD_OAUTH_FILE_PATH:
+            logger.info(
+                f"Using OAuth client_credentials authentication from file: {_MCD_OAUTH_FILE_PATH}"
+            )
+            client_id, client_secret = self._read_oauth_credentials(
+                _MCD_OAUTH_FILE_PATH
+            )
             login_token_provider = OAuthLoginTokenProvider(
-                client_id=_oauth_client_id,
-                client_secret=_oauth_client_secret,
+                client_id=client_id,
+                client_secret=client_secret,
                 backend_service_url=_BACKEND_SERVICE_URL,
                 token_endpoint=_MCD_OAUTH_TOKEN_ENDPOINT,
-            )
-        elif _oauth_client_id or _oauth_client_secret:
-            raise ValueError(
-                "Both MCD_OAUTH_CLIENT_ID and MCD_OAUTH_CLIENT_SECRET must be set "
-                "for OAuth authentication"
             )
         elif _MCD_TOKEN_FILE_PATH:
             logger.info(f"Getting MCD token from file: {_MCD_TOKEN_FILE_PATH}")
@@ -222,6 +220,27 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    @staticmethod
+    def _read_oauth_credentials(file_path: str) -> Tuple[str, str]:
+        try:
+            with open(file_path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise ValueError(f"OAuth credentials file not found: {file_path}")
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"OAuth credentials file is not valid JSON: {file_path}: {e}"
+            )
+
+        client_id = data.get("client_id")
+        client_secret = data.get("client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                "OAuth credentials file must contain non-empty "
+                "'client_id' and 'client_secret' keys"
+            )
+        return client_id, client_secret
 
     @staticmethod
     def _build_logs_service() -> Optional[BaseLogsService]:

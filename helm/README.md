@@ -252,12 +252,29 @@ both are configured — this makes migration easy (deploy with both, then remove
 
 | Property | Description | Default |
 |---|---|---|
-| `oauth.existingSecret` | Name of a pre-created K8s Secret containing `client_id` and `client_secret` keys | _(unset — OAuth disabled)_ |
+| `oauth.existingSecret` | Name of a pre-created K8s Secret containing a `credentials.json` key | _(unset — OAuth disabled)_ |
 | `oauth.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
 
-The `existingSecret` must be a Kubernetes Secret in the same namespace as the agent, with two keys:
-- `client_id` — the OAuth client ID
-- `client_secret` — the OAuth client secret
+The `existingSecret` must be a Kubernetes Secret in the same namespace as the agent, with a
+`credentials.json` key containing:
+
+```json
+{"client_id": "<your-client-id>", "client_secret": "<your-client-secret>"}
+```
+
+This follows the same file-based pattern as the token secret (`mcd-agent-token-secret` with
+`contents.json`). The secret is mounted as a volume and read at startup.
+
+**Docker Compose:** Mount a JSON credentials file and set `MCD_OAUTH_FILE_PATH` to its path:
+
+```yaml
+services:
+  mcd-agent:
+    environment:
+      - MCD_OAUTH_FILE_PATH=/etc/secrets/mcd-oauth/credentials.json
+    volumes:
+      - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
+```
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauth.tokenEndpoint` only for custom or private Cognito

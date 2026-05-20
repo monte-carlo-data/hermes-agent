@@ -144,13 +144,21 @@ kubectl create secret generic mcd-agent-token-secret \
 
 #### 6a-alt — Use OAuth authentication (alternative to token secret)
 
-Instead of the key/token secret, you can authenticate via OAuth `client_credentials`. Create a secret with your OAuth credentials:
+Instead of the key/token secret, you can authenticate via OAuth `client_credentials`. Create a JSON credentials file and a K8s Secret from it:
 
 ```bash
+# Create the credentials file
+cat > /tmp/oauth-creds.json << 'EOF'
+{"client_id": "<your-client-id>", "client_secret": "<your-client-secret>"}
+EOF
+
+# Create the K8s secret (the key must be credentials.json)
 kubectl create secret generic mcd-oauth-secret \
   --namespace mcd-agent \
-  --from-literal=client_id='<your-client-id>' \
-  --from-literal=client_secret='<your-client-secret>'
+  --from-file=credentials.json=/tmp/oauth-creds.json
+
+# Clean up the local file
+rm /tmp/oauth-creds.json
 ```
 
 Then add `--set oauth.existingSecret=mcd-oauth-secret` to your `helm upgrade` command. When OAuth is configured, it takes precedence over the token secret. See the [Helm chart README](helm/README.md#oauth-authentication) for details.
