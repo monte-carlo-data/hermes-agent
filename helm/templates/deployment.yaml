@@ -89,6 +89,22 @@ spec:
             - name: MCD_IN_PROCESS_LOGS_LEVEL
               value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
             {{- end }}
+            {{- if .Values.oauth.existingSecret }}
+            - name: MCD_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth.existingSecret }}
+                  key: client_id
+            - name: MCD_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.oauth.existingSecret }}
+                  key: client_secret
+            {{- if .Values.oauth.tokenEndpoint }}
+            - name: MCD_OAUTH_TOKEN_ENDPOINT
+              value: {{ .Values.oauth.tokenEndpoint | quote }}
+            {{- end }}
+            {{- end }}
             {{- if .Values.container.storageEndpointUrl }}
             - name: MCD_STORAGE_ENDPOINT_URL
               value: {{ .Values.container.storageEndpointUrl | quote }}

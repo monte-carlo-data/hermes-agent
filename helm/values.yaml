@@ -71,6 +71,19 @@ logShipping: in-process
 inProcessLogs:
   logLevel: "INFO"
 
+# OAuth client_credentials authentication. When configured, the agent
+# authenticates to the Monte Carlo backend via Bearer tokens instead of
+# the key/token secret. OAuth takes precedence over MCD_TOKEN_FILE_PATH.
+#
+# existingSecret: name of a pre-created K8s Secret containing `client_id`
+#   and `client_secret` keys. All OAuth env vars are conditional on this.
+# tokenEndpoint: optional override for the OAuth token endpoint URL.
+#   Only needed for custom/private Cognito deployments — by default the
+#   agent derives the endpoint from container.backendServiceUrl.
+oauth: {}
+  # existingSecret: mcd-oauth-secret
+  # tokenEndpoint: ""
+
 logsCollector:
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"
   image:
