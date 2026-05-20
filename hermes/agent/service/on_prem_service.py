@@ -20,6 +20,7 @@ from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProv
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
 from hermes.agent.service.metrics_service import MetricsService
+from hermes.agent.service.oauth_login_token_provider import OAuthLoginTokenProvider
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
 _BACKEND_SERVICE_URL = os.getenv(
@@ -27,6 +28,9 @@ _BACKEND_SERVICE_URL = os.getenv(
     "https://artemis.getmontecarlo.com:443",
 )
 _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
+_MCD_OAUTH_CLIENT_ID = os.getenv("MCD_OAUTH_CLIENT_ID")
+_MCD_OAUTH_CLIENT_SECRET = os.getenv("MCD_OAUTH_CLIENT_SECRET")
+_MCD_OAUTH_TOKEN_ENDPOINT = os.getenv("MCD_OAUTH_TOKEN_ENDPOINT")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
@@ -42,7 +46,23 @@ class OnPremService(BaseEgressAgentService):
         instance_id: Optional[str] = None,
     ):
         logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
-        if _MCD_TOKEN_FILE_PATH:
+        _oauth_client_id = _MCD_OAUTH_CLIENT_ID
+        _oauth_client_secret = _MCD_OAUTH_CLIENT_SECRET
+
+        if _oauth_client_id and _oauth_client_secret:
+            logger.info("Using OAuth client_credentials authentication")
+            login_token_provider = OAuthLoginTokenProvider(
+                client_id=_oauth_client_id,
+                client_secret=_oauth_client_secret,
+                backend_service_url=_BACKEND_SERVICE_URL,
+                token_endpoint=_MCD_OAUTH_TOKEN_ENDPOINT,
+            )
+        elif _oauth_client_id or _oauth_client_secret:
+            raise ValueError(
+                "Both MCD_OAUTH_CLIENT_ID and MCD_OAUTH_CLIENT_SECRET must be set "
+                "for OAuth authentication"
+            )
+        elif _MCD_TOKEN_FILE_PATH:
             logger.info(f"Getting MCD token from file: {_MCD_TOKEN_FILE_PATH}")
             login_token_provider = FileLoginTokenProvider(
                 file_path=_MCD_TOKEN_FILE_PATH,
