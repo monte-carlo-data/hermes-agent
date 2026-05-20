@@ -1,7 +1,4 @@
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@dev
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.5
 # When bumping this version, also bump the corresponding `<version>-system-base`
 # image tag in the Dockerfile FROM so the runtime image matches the python pin.
-# Note: using ``@dev`` here keeps the same base image (no Python pin change) and
-# only refreshes the apollo-agent code — temporary for testing the Databricks
-# timing instrumentation (apollo-agent PR #297 + agent-common PR #21).
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@dev
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.6
