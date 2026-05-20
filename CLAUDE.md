@@ -54,7 +54,7 @@ docker build --target hermes-generic -t hermes-agent:local \
 | Path | Purpose |
 |---|---|
 | `hermes/agent/main.py` | Flask app entry point |
-| `hermes/agent/service/` | Core service logic (OnPremService, MetricsService) |
+| `hermes/agent/service/` | Core service logic (OnPremService, MetricsService, OAuthLoginTokenProvider) |
 | `gunicorn.conf.py` | Gunicorn config (signal handler registration) |
 | `tests/` | Unit tests (pytest) |
 | `helm/` | Kubernetes Helm charts |

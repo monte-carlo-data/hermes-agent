@@ -194,6 +194,7 @@ class OnPremServiceTests(TestCase):
                 logging_utils=self._logging_utils,
             )
         mock_oauth_cls.assert_called_once()
+        self.assertIs(service._login_token_provider, mock_oauth_cls.return_value)
 
     @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
     @patch(
@@ -245,11 +246,13 @@ class OnPremServiceTests(TestCase):
             "os.environ",
             {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
         ):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(ValueError) as ctx:
                 OnPremService(
                     config_manager=self._config_manager,
                     logging_utils=self._logging_utils,
                 )
+        self.assertIn("MCD_OAUTH_CLIENT_ID", str(ctx.exception))
+        self.assertIn("MCD_OAUTH_CLIENT_SECRET", str(ctx.exception))
 
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_SECRET", None)
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_CLIENT_ID", None)

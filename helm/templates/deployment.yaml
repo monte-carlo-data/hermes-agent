@@ -1,4 +1,7 @@
 {{- include "hermes.logShipping.validate" . }}
+{{- if and .Values.oauth.tokenEndpoint (not (hasPrefix "https://" .Values.oauth.tokenEndpoint)) }}
+{{- fail "oauth.tokenEndpoint must use HTTPS" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -81,8 +84,10 @@ spec:
               value: {{ .Values.container.opsRunnerThreadCount | default "18" | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
+            {{- if not .Values.oauth.existingSecret }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
+            {{- end }}
             - name: MCD_IN_PROCESS_LOGS_ENABLED
               value: {{ eq .Values.logShipping "in-process" | quote }}
             {{- if eq .Values.logShipping "in-process" }}
@@ -129,9 +134,11 @@ spec:
             {{- .Values.container.extraEnv | toYaml | nindent 12 }}
             {{- end }}
           volumeMounts:
+            {{- if not .Values.oauth.existingSecret }}
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            {{- end }}
             - name: mcd-integrations-secrets
               mountPath: /etc/secrets/integrations
               readOnly: true
@@ -142,9 +149,11 @@ spec:
             {{- .Values.extraVolumeMounts | toYaml | nindent 12 }}
             {{- end }}
       volumes:
+        {{- if not .Values.oauth.existingSecret }}
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        {{- end }}
         - name: mcd-integrations-secrets
           secret:
             secretName: mcd-integrations-secrets

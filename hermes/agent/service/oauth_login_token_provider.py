@@ -11,6 +11,8 @@ from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
 
 logger = logging.getLogger(__name__)
 
+# Intentionally hardcoded — the Cognito resource server identifier is the same
+# across all regional deployments.
 _OAUTH_SCOPE = "https://artemis.getmontecarlo.com/connect"
 _TOKEN_PATH = "/oauth2/token"
 _REFRESH_FRACTION = 0.8
@@ -35,7 +37,7 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         self._client_id = client_id
         self._client_secret = client_secret
 
-        if token_endpoint is not None:
+        if token_endpoint:
             self._token_endpoint = token_endpoint
         else:
             self._token_endpoint = self._derive_token_endpoint(backend_service_url)
@@ -69,7 +71,15 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         if self._needs_refresh():
             with self._lock:
                 if self._needs_refresh():
-                    self._fetch_token()
+                    try:
+                        self._fetch_token()
+                    except Exception:
+                        if self._access_token is None:
+                            raise
+                        logger.warning(
+                            "Proactive token refresh failed, using cached token",
+                            exc_info=True,
+                        )
 
         return {"Authorization": f"Bearer {self._access_token}"}
 
@@ -77,9 +87,12 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         if self._access_token is None:
             return True
         elapsed = time.monotonic() - self._acquired_at
-        threshold = min(
-            _REFRESH_FRACTION * self._expires_in,
-            self._expires_in - _REFRESH_BUFFER_SECONDS,
+        threshold = max(
+            0.0,
+            min(
+                _REFRESH_FRACTION * self._expires_in,
+                self._expires_in - _REFRESH_BUFFER_SECONDS,
+            ),
         )
         return elapsed >= threshold
 
@@ -99,8 +112,22 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         response.raise_for_status()
 
         body = response.json()
-        self._access_token = body["access_token"]
+        access_token = body.get("access_token")
+        expires_in = body.get("expires_in")
+
+        if not isinstance(access_token, str) or not access_token:
+            self._access_token = None
+            raise OAuthTokenError(
+                "Token response missing or empty 'access_token' field"
+            )
+        if not isinstance(expires_in, (int, float)) or expires_in <= 0:
+            self._access_token = None
+            raise OAuthTokenError(
+                "Token response missing or invalid 'expires_in' field"
+            )
+
+        self._access_token = access_token
         self._acquired_at = time.monotonic()
-        self._expires_in = body["expires_in"]
+        self._expires_in = int(expires_in)
 
         logger.info(f"OAuth token acquired, expires in {self._expires_in}s")
