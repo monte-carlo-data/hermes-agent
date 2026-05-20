@@ -55,6 +55,8 @@ brotli==1.2.0
     # via
     #   flask-compress
     #   mcd-agent
+cachetools==5.3.3
+    # via mcd-agent
 cattrs==26.1.0
     # via looker-sdk
 certifi==2026.4.22
