@@ -98,6 +98,60 @@ class OnPremServiceTests(TestCase):
         )
         get_types_mock.assert_called_once_with("3456")
 
+    @patch(
+        "hermes.agent.service.on_prem_service.Agent.validate_self_hosted_credentials"
+    )
+    @patch(
+        "hermes.agent.service.on_prem_service.OnPremService._extract_credentials_in_request"
+    )
+    def test_validate_self_hosted_credentials_routes_to_agent(
+        self, extract_mock, validate_mock
+    ):
+        # Happy path: the egress operation extracts credentials via the same
+        # path the HTTP route uses and forwards the decoded dict to the agent.
+        decoded = {"connect_args": {"user": "u", "account": "a", "password": "p"}}
+        extract_mock.return_value = decoded
+        validate_mock.return_value = Mock(result={"valid": True})
+
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="7890",
+                event={
+                    "path": "/api/v1/self-hosted-credentials/validate/snowflake",
+                    "credentials": {
+                        "self_hosted_credentials_type": "aws_secrets_manager",
+                        "aws_secret": "arn:aws:secretsmanager:us-east-1:1:secret:x",
+                    },
+                    "operation": {"trace_id": "7890"},
+                },
+            )
+        )
+        validate_mock.assert_called_once_with(
+            connection_type="snowflake",
+            decoded_credentials=decoded,
+            trace_id="7890",
+        )
+
+    @patch(
+        "hermes.agent.service.on_prem_service.Agent.validate_self_hosted_credentials"
+    )
+    def test_validate_self_hosted_credentials_rejects_inline(self, validate_mock):
+        # Inline credentials (no self_hosted_credentials_type) must be rejected
+        # before the schema check runs — matches the Flask route's HTTP 400.
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="7891",
+                event={
+                    "path": "/api/v1/self-hosted-credentials/validate/snowflake",
+                    "credentials": {
+                        "connect_args": {"user": "u", "account": "a", "password": "p"}
+                    },
+                    "operation": {"trace_id": "7891"},
+                },
+            )
+        )
+        validate_mock.assert_not_called()
+
     @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
     def test_in_process_logs_enabled_wires_logs_service(self, setup_mock):
         # Drives the activation branch of _build_logs_service: when

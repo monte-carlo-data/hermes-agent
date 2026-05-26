@@ -4,7 +4,10 @@ from typing import Dict, Any, Callable, Optional, Tuple
 
 from apollo.agent.agent import Agent
 from apollo.agent.logging_utils import LoggingUtils
-from apollo.credentials.factory import CredentialsFactory
+from apollo.credentials.factory import (
+    CredentialsFactory,
+    SELF_HOSTED_CREDENTIALS_TYPE,
+)
 from apollo.egress.agent.config.config_manager import ConfigurationManager
 from apollo.egress.agent.service.base_egress_service import (
     BaseEgressAgentService,
@@ -30,6 +33,9 @@ _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
+_VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX = (
+    "/api/v1/self-hosted-credentials/validate/"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +91,13 @@ class OnPremService(BaseEgressAgentService):
                 path=_CONNECTORS_TYPES_PATH,
                 matching_type=OperationMatchingType.EQUALS,
                 method=self._execute_supported_connector_types,
+            )
+        )
+        self._operations_mapping.append(
+            OperationMapping(
+                path=_VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX,
+                matching_type=OperationMatchingType.STARTS_WITH,
+                method=self._execute_validate_self_hosted_credentials,
             )
         )
 
@@ -199,6 +212,72 @@ class OnPremService(BaseEgressAgentService):
                 operation.get("trace_id") if isinstance(operation, dict) else None
             )
             response = self._agent.get_supported_connector_types(trace_id)
+            self._schedule_push_results(operation_id, response.result)
+        except Exception as ex:
+            self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    def _execute_validate_self_hosted_credentials(
+        self,
+        operation_id: str,
+        event: Dict[str, Any],
+    ):
+        """Egress counterpart to the Flask /api/v1/self-hosted-credentials/validate/
+        route in apollo-agent. Fetches the secret via the standard CredentialsFactory
+        path, then runs the per-connector cerberus schema against the decoded JSON.
+
+        Mirrors the Flask route's guards so behavior is identical regardless of
+        whether the call arrives over HTTP or through the egress event stream:
+        rejects requests missing `self_hosted_credentials_type` and surfaces
+        fetch failures with the same ``Failed to read self-hosted credentials``
+        prefix used by ``execute_agent_operation``.
+        """
+        try:
+            path = event.get("path")
+            if not path or not path.startswith(
+                _VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX
+            ):
+                raise ValueError(f"Invalid path: {path}")
+            connection_type = path.removeprefix(
+                _VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX
+            )
+            if not connection_type:
+                raise ValueError(f"Missing connection_type in path: {path}")
+
+            raw_credentials = event.get("credentials") or {}
+            if not isinstance(raw_credentials, dict):
+                raise ValueError("credentials must be a JSON object")
+
+            # Reject inline credentials — this endpoint validates self-hosted
+            # specifically. The CredentialsFactory would otherwise silently
+            # passthrough and the schema check would run without exercising
+            # the secret fetch this operation exists to test.
+            if not raw_credentials.get(SELF_HOSTED_CREDENTIALS_TYPE):
+                raise ValueError(
+                    "This endpoint validates self-hosted credentials only. "
+                    f"Missing required '{SELF_HOSTED_CREDENTIALS_TYPE}' in the "
+                    "credentials envelope (one of: env_var, aws_secrets_manager, "
+                    "gcp_secret_manager, azure_key_vault, file)."
+                )
+
+            try:
+                decoded = self._extract_credentials_in_request(raw_credentials)
+            except Exception as fetch_ex:
+                # Match the Flask route's "Failed to read self-hosted credentials:"
+                # prefix so customer-visible error messages are identical across
+                # the HTTP and egress entry points.
+                raise ValueError(
+                    f"Failed to read self-hosted credentials: {fetch_ex}"
+                ) from fetch_ex
+
+            operation = event.get("operation")
+            trace_id = (
+                operation.get("trace_id") if isinstance(operation, dict) else None
+            )
+            response = self._agent.validate_self_hosted_credentials(
+                connection_type=connection_type,
+                decoded_credentials=decoded,
+                trace_id=trace_id,
+            )
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
