@@ -228,9 +228,16 @@ class OnPremService(BaseEgressAgentService):
                 data = json.load(f)
         except FileNotFoundError:
             raise ValueError(f"OAuth credentials file not found: {file_path}")
-        except json.JSONDecodeError as e:
+        except PermissionError:
             raise ValueError(
-                f"OAuth credentials file is not valid JSON: {file_path}: {e}"
+                f"Cannot read OAuth credentials file (permission denied): {file_path}"
+            )
+        except json.JSONDecodeError:
+            raise ValueError(f"OAuth credentials file is not valid JSON: {file_path}")
+
+        if not isinstance(data, dict):
+            raise ValueError(
+                f"OAuth credentials file must contain a JSON object: {file_path}"
             )
 
         client_id = data.get("client_id")

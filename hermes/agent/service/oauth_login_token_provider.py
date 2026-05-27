@@ -71,11 +71,13 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         if self._needs_refresh():
             with self._lock:
                 if self._needs_refresh():
+                    cached = self._access_token
                     try:
                         self._fetch_token()
                     except Exception:
-                        if self._access_token is None:
+                        if cached is None:
                             raise
+                        self._access_token = cached  # restore
                         logger.warning(
                             "Proactive token refresh failed, using cached token",
                             exc_info=True,
@@ -99,9 +101,8 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
     def _fetch_token(self) -> None:
         response = requests.post(
             self._token_endpoint,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
             auth=requests.auth.HTTPBasicAuth(self._client_id, self._client_secret),
-            data=f"grant_type=client_credentials&scope={_OAUTH_SCOPE}",
+            data={"grant_type": "client_credentials", "scope": _OAUTH_SCOPE},
             timeout=_TOKEN_REQUEST_TIMEOUT,
         )
 
@@ -129,5 +130,11 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         self._access_token = access_token
         self._acquired_at = time.monotonic()
         self._expires_in = int(expires_in)
+
+        if self._expires_in < _REFRESH_BUFFER_SECONDS:
+            logger.warning(
+                f"Token TTL ({self._expires_in}s) is shorter than refresh buffer "
+                f"({_REFRESH_BUFFER_SECONDS}s); token will be refreshed on every call"
+            )
 
         logger.info(f"OAuth token acquired, expires in {self._expires_in}s")

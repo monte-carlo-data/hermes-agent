@@ -117,7 +117,10 @@ class OAuthLoginTokenProviderTests(TestCase):
         )
         self.assertEqual(
             call_kwargs.kwargs["data"],
-            "grant_type=client_credentials&scope=https://artemis.getmontecarlo.com/connect",
+            {
+                "grant_type": "client_credentials",
+                "scope": "https://artemis.getmontecarlo.com/connect",
+            },
         )
         auth = call_kwargs.kwargs["auth"]
         self.assertIsInstance(auth, requests.auth.HTTPBasicAuth)
