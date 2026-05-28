@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 from typing import Dict, Any, Callable, Optional, Tuple
@@ -51,12 +50,8 @@ class OnPremService(BaseEgressAgentService):
             logger.info(
                 f"Using OAuth client_credentials authentication from file: {_MCD_OAUTH_FILE_PATH}"
             )
-            client_id, client_secret = self._read_oauth_credentials(
-                _MCD_OAUTH_FILE_PATH
-            )
             login_token_provider = OAuthLoginTokenProvider(
-                client_id=client_id,
-                client_secret=client_secret,
+                file_path=_MCD_OAUTH_FILE_PATH,
                 backend_service_url=_BACKEND_SERVICE_URL,
                 token_endpoint=_MCD_OAUTH_TOKEN_ENDPOINT,
             )
@@ -220,34 +215,6 @@ class OnPremService(BaseEgressAgentService):
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))
-
-    @staticmethod
-    def _read_oauth_credentials(file_path: str) -> Tuple[str, str]:
-        try:
-            with open(file_path) as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            raise ValueError(f"OAuth credentials file not found: {file_path}")
-        except PermissionError:
-            raise ValueError(
-                f"Cannot read OAuth credentials file (permission denied): {file_path}"
-            )
-        except json.JSONDecodeError:
-            raise ValueError(f"OAuth credentials file is not valid JSON: {file_path}")
-
-        if not isinstance(data, dict):
-            raise ValueError(
-                f"OAuth credentials file must contain a JSON object: {file_path}"
-            )
-
-        client_id = data.get("client_id")
-        client_secret = data.get("client_secret")
-        if not client_id or not client_secret:
-            raise ValueError(
-                "OAuth credentials file must contain non-empty "
-                "'client_id' and 'client_secret' keys"
-            )
-        return client_id, client_secret
 
     @staticmethod
     def _build_logs_service() -> Optional[BaseLogsService]:

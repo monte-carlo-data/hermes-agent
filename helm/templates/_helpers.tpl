@@ -4,6 +4,19 @@ the `logShipping` enum) and rejects unknown enum values. Also rejects
 in-process log levels outside a curated allowlist — DEBUG would surface
 third-party-library content (request bodies, tokens) into shipped logs.
 */}}
+{{/*
+Whether OAuth authentication is enabled. True when oauthSecret.remoteRef is set
+(cloud via ExternalSecret) or skipExternalSecrets is true and oauthSecret.enabled
+is set (manual secret creation).
+*/}}
+{{- define "hermes.oauth.enabled" -}}
+{{- if and .Values.oauthSecret .Values.oauthSecret.remoteRef -}}
+true
+{{- else if and .Values.oauthSecret .Values.oauthSecret.enabled -}}
+true
+{{- end -}}
+{{- end -}}
+
 {{- define "hermes.logShipping.validate" -}}
 {{- if hasKey .Values.logsCollector "enabled" -}}
 {{- fail "logsCollector.enabled has been replaced by the top-level `logShipping` setting. Use `logShipping: fluentd` (was `logsCollector.enabled: true`) or `logShipping: none` (was `logsCollector.enabled: false`, which left the agent with no log shipping). To opt into the new in-process shipper instead, set `logShipping: in-process`. See helm/README.md." -}}

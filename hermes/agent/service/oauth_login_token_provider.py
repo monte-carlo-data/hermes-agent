@@ -1,7 +1,8 @@
+import json
 import logging
 import threading
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -18,6 +19,8 @@ _TOKEN_PATH = "/oauth2/token"
 _REFRESH_FRACTION = 0.8
 _REFRESH_BUFFER_SECONDS = 300
 _TOKEN_REQUEST_TIMEOUT = 30
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0
 
 
 class OAuthTokenError(Exception):
@@ -29,13 +32,11 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
 
     def __init__(
         self,
-        client_id: str,
-        client_secret: str,
+        file_path: str,
         backend_service_url: str,
         token_endpoint: Optional[str] = None,
     ):
-        self._client_id = client_id
-        self._client_secret = client_secret
+        self._file_path = file_path
 
         if token_endpoint:
             self._token_endpoint = token_endpoint
@@ -98,19 +99,70 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         )
         return elapsed >= threshold
 
+    def _read_credentials(self) -> Tuple[str, str]:
+        """Read OAuth client credentials from the JSON file."""
+        try:
+            with open(self._file_path) as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            raise OAuthTokenError(
+                f"OAuth credentials file not found: {self._file_path}"
+            )
+        except PermissionError:
+            raise OAuthTokenError(
+                f"Cannot read OAuth credentials file (permission denied): "
+                f"{self._file_path}"
+            )
+        except json.JSONDecodeError:
+            raise OAuthTokenError(
+                f"OAuth credentials file is not valid JSON: {self._file_path}"
+            )
+
+        if not isinstance(data, dict):
+            raise OAuthTokenError(
+                f"OAuth credentials file must contain a JSON object: {self._file_path}"
+            )
+
+        client_id = data.get("client_id")
+        client_secret = data.get("client_secret")
+        if not client_id or not client_secret:
+            raise OAuthTokenError(
+                "OAuth credentials file must contain non-empty "
+                "'client_id' and 'client_secret' keys"
+            )
+        return client_id, client_secret
+
     def _fetch_token(self) -> None:
-        response = requests.post(
-            self._token_endpoint,
-            auth=requests.auth.HTTPBasicAuth(self._client_id, self._client_secret),
-            data={"grant_type": "client_credentials", "scope": _OAUTH_SCOPE},
-            timeout=_TOKEN_REQUEST_TIMEOUT,
-        )
+        client_id, client_secret = self._read_credentials()
 
-        if response.status_code == 401:
-            self._access_token = None
-            raise OAuthTokenError("Invalid OAuth credentials (401 from token endpoint)")
+        for attempt in range(_MAX_RETRIES):
+            response = requests.post(
+                self._token_endpoint,
+                auth=requests.auth.HTTPBasicAuth(client_id, client_secret),
+                data={"grant_type": "client_credentials", "scope": _OAUTH_SCOPE},
+                timeout=_TOKEN_REQUEST_TIMEOUT,
+            )
 
-        response.raise_for_status()
+            if response.status_code == 401:
+                self._access_token = None
+                raise OAuthTokenError(
+                    "Invalid OAuth credentials (401 from token endpoint)"
+                )
+
+            if response.status_code >= 500 and attempt < _MAX_RETRIES - 1:
+                delay = _RETRY_BASE_DELAY * (2**attempt)
+                logger.warning(
+                    "Token endpoint returned %d (attempt %d/%d), retrying in %.1fs",
+                    response.status_code,
+                    attempt + 1,
+                    _MAX_RETRIES,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+
+            response.raise_for_status()
+            break
 
         body = response.json()
         access_token = body.get("access_token")

@@ -156,16 +156,10 @@ class OnPremServiceTests(TestCase):
     @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
     @patch(
-        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
-        return_value=("test-id", "test-secret"),
-    )
-    @patch(
         "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
         "/etc/secrets/mcd-oauth/credentials.json",
     )
-    def test_oauth_provider_selected_when_file_path_set(
-        self, mock_read, mock_oauth_cls
-    ):
+    def test_oauth_provider_selected_when_file_path_set(self, mock_oauth_cls):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -175,10 +169,8 @@ class OnPremServiceTests(TestCase):
                 config_manager=self._config_manager,
                 logging_utils=self._logging_utils,
             )
-        mock_read.assert_called_once_with("/etc/secrets/mcd-oauth/credentials.json")
         mock_oauth_cls.assert_called_once_with(
-            client_id="test-id",
-            client_secret="test-secret",
+            file_path="/etc/secrets/mcd-oauth/credentials.json",
             backend_service_url="https://artemis.getmontecarlo.com:443",
             token_endpoint=None,
         )
@@ -187,14 +179,10 @@ class OnPremServiceTests(TestCase):
     @patch("hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", "/some/file")
     @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
     @patch(
-        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
-        return_value=("test-id", "test-secret"),
-    )
-    @patch(
         "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
         "/etc/secrets/mcd-oauth/credentials.json",
     )
-    def test_oauth_takes_precedence_over_file_token(self, mock_read, mock_oauth_cls):
+    def test_oauth_takes_precedence_over_file_token(self, mock_oauth_cls):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -213,16 +201,10 @@ class OnPremServiceTests(TestCase):
         "https://custom.example.com/oauth2/token",
     )
     @patch(
-        "hermes.agent.service.on_prem_service.OnPremService._read_oauth_credentials",
-        return_value=("test-id", "test-secret"),
-    )
-    @patch(
         "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
         "/etc/secrets/mcd-oauth/credentials.json",
     )
-    def test_oauth_token_endpoint_override_passed_through(
-        self, mock_read, mock_oauth_cls
-    ):
+    def test_oauth_token_endpoint_override_passed_through(self, mock_oauth_cls):
         mock_oauth_cls.return_value = Mock()
         with patch.dict(
             "os.environ",
@@ -233,75 +215,10 @@ class OnPremServiceTests(TestCase):
                 logging_utils=self._logging_utils,
             )
         mock_oauth_cls.assert_called_once_with(
-            client_id="test-id",
-            client_secret="test-secret",
+            file_path="/etc/secrets/mcd-oauth/credentials.json",
             backend_service_url="https://artemis.getmontecarlo.com:443",
             token_endpoint="https://custom.example.com/oauth2/token",
         )
-
-    # ------------------------------------------------------------------
-    # OAuth credential file reading
-    # ------------------------------------------------------------------
-
-    def test_oauth_file_missing_client_id_raises(self):
-        import json
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"client_secret": "test-secret"}, f)
-            path = f.name
-        try:
-            with self.assertRaises(ValueError) as ctx:
-                OnPremService._read_oauth_credentials(path)
-            self.assertIn("client_id", str(ctx.exception))
-        finally:
-            os.unlink(path)
-
-    def test_oauth_file_missing_client_secret_raises(self):
-        import json
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"client_id": "test-id"}, f)
-            path = f.name
-        try:
-            with self.assertRaises(ValueError) as ctx:
-                OnPremService._read_oauth_credentials(path)
-            self.assertIn("client_secret", str(ctx.exception))
-        finally:
-            os.unlink(path)
-
-    def test_oauth_file_not_found_raises(self):
-        with self.assertRaises(ValueError) as ctx:
-            OnPremService._read_oauth_credentials("/nonexistent/path/creds.json")
-        self.assertIn("not found", str(ctx.exception))
-
-    def test_oauth_file_invalid_json_raises(self):
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            f.write("not json")
-            path = f.name
-        try:
-            with self.assertRaises(ValueError) as ctx:
-                OnPremService._read_oauth_credentials(path)
-            self.assertIn("not valid JSON", str(ctx.exception))
-        finally:
-            os.unlink(path)
-
-    def test_oauth_file_reads_credentials(self):
-        import json
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump({"client_id": "my-id", "client_secret": "my-secret"}, f)
-            path = f.name
-        try:
-            client_id, client_secret = OnPremService._read_oauth_credentials(path)
-            self.assertEqual(client_id, "my-id")
-            self.assertEqual(client_secret, "my-secret")
-        finally:
-            os.unlink(path)
 
     # ------------------------------------------------------------------
     # Fallback provider selection

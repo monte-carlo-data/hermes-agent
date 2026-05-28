@@ -1,3 +1,6 @@
+import json
+import os
+import tempfile
 import threading
 from unittest import TestCase
 from unittest.mock import Mock, patch
@@ -11,10 +14,20 @@ from hermes.agent.service.oauth_login_token_provider import (
 
 
 class OAuthLoginTokenProviderTests(TestCase):
+    def setUp(self):
+        self._creds_fd, self._creds_path = tempfile.mkstemp(suffix=".json")
+        with open(self._creds_fd, "w") as f:
+            json.dump(
+                {"client_id": "test-client-id", "client_secret": "test-client-secret"},
+                f,
+            )
+
+    def tearDown(self):
+        os.unlink(self._creds_path)
+
     def _make_provider(self, **kwargs):
         defaults = {
-            "client_id": "test-client-id",
-            "client_secret": "test-client-secret",
+            "file_path": self._creds_path,
             "backend_service_url": "https://artemis.getmontecarlo.com:443",
         }
         defaults.update(kwargs)
@@ -283,11 +296,7 @@ class OAuthLoginTokenProviderTests(TestCase):
         with self.assertLogs(
             "hermes.agent.service.oauth_login_token_provider", level="DEBUG"
         ) as cm:
-            provider = OAuthLoginTokenProvider(
-                client_id="test-client-id",
-                client_secret="test-client-secret",
-                backend_service_url="https://artemis.getmontecarlo.com:443",
-            )
+            provider = self._make_provider()
             provider.get_token()
 
         all_output = "\n".join(cm.output)
@@ -308,8 +317,9 @@ class OAuthLoginTokenProviderTests(TestCase):
 
     # ── Non-401 HTTP errors ──
 
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
     @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
-    def test_server_error_propagates(self, mock_post):
+    def test_server_error_propagates(self, mock_post, mock_sleep):
         response = Mock()
         response.status_code = 500
         response.raise_for_status.side_effect = requests.HTTPError(
@@ -320,6 +330,7 @@ class OAuthLoginTokenProviderTests(TestCase):
 
         with self.assertRaises(requests.HTTPError):
             provider.get_token()
+        self.assertEqual(mock_post.call_count, 3)
 
     # ── Malformed response body ──
 
@@ -381,3 +392,132 @@ class OAuthLoginTokenProviderTests(TestCase):
         result2 = provider.get_token()
         self.assertEqual(result2, {"Authorization": "Bearer original-token"})
         self.assertEqual(mock_post.call_count, 2)
+
+    # ── Credential file reading ──
+
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_missing_credentials_file_raises(self, mock_post):
+        provider = self._make_provider(file_path="/nonexistent/path/creds.json")
+        with self.assertRaises(OAuthTokenError) as ctx:
+            provider.get_token()
+        self.assertIn("not found", str(ctx.exception))
+        mock_post.assert_not_called()
+
+    def test_invalid_json_credentials_file_raises(self):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        try:
+            with open(fd, "w") as f:
+                f.write("not json")
+            provider = self._make_provider(file_path=path)
+            with self.assertRaises(OAuthTokenError) as ctx:
+                provider.get_token()
+            self.assertIn("not valid JSON", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_missing_client_id_in_file_raises(self):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        try:
+            with open(fd, "w") as f:
+                json.dump({"client_secret": "secret"}, f)
+            provider = self._make_provider(file_path=path)
+            with self.assertRaises(OAuthTokenError) as ctx:
+                provider.get_token()
+            self.assertIn("client_id", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    def test_missing_client_secret_in_file_raises(self):
+        fd, path = tempfile.mkstemp(suffix=".json")
+        try:
+            with open(fd, "w") as f:
+                json.dump({"client_id": "id"}, f)
+            provider = self._make_provider(file_path=path)
+            with self.assertRaises(OAuthTokenError) as ctx:
+                provider.get_token()
+            self.assertIn("client_secret", str(ctx.exception))
+        finally:
+            os.unlink(path)
+
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_credential_rotation_picks_up_new_credentials(self, mock_post):
+        mock_post.return_value = self._make_success_response()
+        provider = self._make_provider()
+
+        provider.get_token()
+        auth1 = mock_post.call_args.kwargs["auth"]
+        self.assertEqual(auth1.username, "test-client-id")
+
+        # Rotate credentials on disk
+        with open(self._creds_path, "w") as f:
+            json.dump({"client_id": "rotated-id", "client_secret": "rotated-secret"}, f)
+
+        # Force a refresh by clearing the cached token
+        provider._access_token = None
+        provider.get_token()
+        auth2 = mock_post.call_args.kwargs["auth"]
+        self.assertEqual(auth2.username, "rotated-id")
+        self.assertEqual(auth2.password, "rotated-secret")
+
+    # ── Retry on 5xx ──
+
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_retry_on_5xx_succeeds_after_retry(self, mock_post, mock_sleep):
+        error_response = Mock()
+        error_response.status_code = 500
+        success_response = self._make_success_response()
+        mock_post.side_effect = [error_response, success_response]
+        provider = self._make_provider()
+
+        result = provider.get_token()
+
+        self.assertEqual(result, {"Authorization": "Bearer test-jwt"})
+        self.assertEqual(mock_post.call_count, 2)
+        mock_sleep.assert_called_once_with(1.0)
+
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_retry_on_5xx_exhausted_raises(self, mock_post, mock_sleep):
+        error_response = Mock()
+        error_response.status_code = 503
+        error_response.raise_for_status.side_effect = requests.HTTPError(
+            "503 Service Unavailable", response=error_response
+        )
+        mock_post.return_value = error_response
+        provider = self._make_provider()
+
+        with self.assertRaises(requests.HTTPError):
+            provider.get_token()
+        self.assertEqual(mock_post.call_count, 3)
+        self.assertEqual(mock_sleep.call_count, 2)
+
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_401_does_not_retry(self, mock_post, mock_sleep):
+        response = Mock()
+        response.status_code = 401
+        mock_post.return_value = response
+        provider = self._make_provider()
+
+        with self.assertRaises(OAuthTokenError):
+            provider.get_token()
+        mock_post.assert_called_once()
+        mock_sleep.assert_not_called()
+
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_retry_backoff_doubles(self, mock_post, mock_sleep):
+        error_response = Mock()
+        error_response.status_code = 502
+        error_response.raise_for_status.side_effect = requests.HTTPError(
+            "502 Bad Gateway", response=error_response
+        )
+        mock_post.return_value = error_response
+        provider = self._make_provider()
+
+        with self.assertRaises(requests.HTTPError):
+            provider.get_token()
+        self.assertEqual(mock_sleep.call_count, 2)
+        mock_sleep.assert_any_call(1.0)
+        mock_sleep.assert_any_call(2.0)
