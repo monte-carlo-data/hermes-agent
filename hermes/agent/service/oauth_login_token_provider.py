@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 import requests
 import requests.auth
+from retry import retry
 
 from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
 
@@ -25,6 +26,10 @@ _RETRY_BASE_DELAY = 1.0
 
 class OAuthTokenError(Exception):
     pass
+
+
+class _RetryableHTTPError(Exception):
+    """5xx HTTP errors wrapped to opt into the retry decorator's retry list."""
 
 
 class OAuthLoginTokenProvider(LoginTokenProvider):
@@ -134,35 +139,34 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
 
     def _fetch_token(self) -> None:
         client_id, client_secret = self._read_credentials()
+        self._post_token_request(client_id, client_secret)
 
-        for attempt in range(_MAX_RETRIES):
+    @retry(
+        exceptions=(_RetryableHTTPError,),
+        tries=_MAX_RETRIES,
+        delay=_RETRY_BASE_DELAY,
+        backoff=2,
+        logger=logger,
+    )
+    def _post_token_request(self, client_id: str, client_secret: str) -> None:
+        try:
             response = requests.post(
                 self._token_endpoint,
                 auth=requests.auth.HTTPBasicAuth(client_id, client_secret),
                 data={"grant_type": "client_credentials", "scope": _OAUTH_SCOPE},
                 timeout=_TOKEN_REQUEST_TIMEOUT,
             )
+        except requests.ConnectionError:
+            raise _RetryableHTTPError("Connection error during token request")
 
-            if response.status_code == 401:
-                self._access_token = None
-                raise OAuthTokenError(
-                    "Invalid OAuth credentials (401 from token endpoint)"
-                )
+        if response.status_code == 401:
+            self._access_token = None
+            raise OAuthTokenError("Invalid OAuth credentials (401 from token endpoint)")
 
-            if response.status_code >= 500 and attempt < _MAX_RETRIES - 1:
-                delay = _RETRY_BASE_DELAY * (2**attempt)
-                logger.warning(
-                    "Token endpoint returned %d (attempt %d/%d), retrying in %.1fs",
-                    response.status_code,
-                    attempt + 1,
-                    _MAX_RETRIES,
-                    delay,
-                )
-                time.sleep(delay)
-                continue
+        if response.status_code >= 500:
+            raise _RetryableHTTPError(f"Token endpoint returned {response.status_code}")
 
-            response.raise_for_status()
-            break
+        response.raise_for_status()
 
         body = response.json()
         access_token = body.get("access_token")

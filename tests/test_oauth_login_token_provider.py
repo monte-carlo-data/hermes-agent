@@ -10,6 +10,7 @@ import requests
 from hermes.agent.service.oauth_login_token_provider import (
     OAuthLoginTokenProvider,
     OAuthTokenError,
+    _RetryableHTTPError,
 )
 
 
@@ -279,13 +280,15 @@ class OAuthLoginTokenProviderTests(TestCase):
         self.assertEqual(result, {"Authorization": "Bearer fresh-token"})
         self.assertEqual(mock_post.call_count, 2)
 
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
     @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
-    def test_network_error_propagates(self, mock_post):
+    def test_network_error_retries_then_propagates(self, mock_post, mock_sleep):
         mock_post.side_effect = requests.ConnectionError("connection refused")
         provider = self._make_provider()
 
-        with self.assertRaises(requests.ConnectionError):
+        with self.assertRaises(_RetryableHTTPError):
             provider.get_token()
+        self.assertEqual(mock_post.call_count, 3)
 
     # ── No credential logging ──
 
@@ -319,16 +322,13 @@ class OAuthLoginTokenProviderTests(TestCase):
 
     @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
     @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
-    def test_server_error_propagates(self, mock_post, mock_sleep):
+    def test_server_error_retries_then_propagates(self, mock_post, mock_sleep):
         response = Mock()
         response.status_code = 500
-        response.raise_for_status.side_effect = requests.HTTPError(
-            "500 Server Error", response=response
-        )
         mock_post.return_value = response
         provider = self._make_provider()
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(_RetryableHTTPError):
             provider.get_token()
         self.assertEqual(mock_post.call_count, 3)
 
@@ -367,17 +367,21 @@ class OAuthLoginTokenProviderTests(TestCase):
 
     # ── Proactive refresh failure returns cached token ──
 
+    @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
     @patch("hermes.agent.service.oauth_login_token_provider.time.monotonic")
     @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
     def test_proactive_refresh_failure_returns_cached_token(
-        self, mock_post, mock_monotonic
+        self, mock_post, mock_monotonic, mock_sleep
     ):
         success_response = self._make_success_response(
             access_token="original-token", expires_in=3600
         )
+        # ConnectionError is now retried 3 times before giving up
         mock_post.side_effect = [
             success_response,
-            requests.ConnectionError("connection refused"),
+            requests.ConnectionError("refused"),
+            requests.ConnectionError("refused"),
+            requests.ConnectionError("refused"),
         ]
         # 1st: _fetch_token _acquired_at = 1000
         # 2nd: _needs_refresh outer → elapsed = 4000 - 1000 = 3000 >= 2880 → True
@@ -391,7 +395,7 @@ class OAuthLoginTokenProviderTests(TestCase):
         # Second call triggers proactive refresh which fails — cached token returned
         result2 = provider.get_token()
         self.assertEqual(result2, {"Authorization": "Bearer original-token"})
-        self.assertEqual(mock_post.call_count, 2)
+        self.assertEqual(mock_post.call_count, 4)
 
     # ── Credential file reading ──
 
@@ -474,20 +478,17 @@ class OAuthLoginTokenProviderTests(TestCase):
 
         self.assertEqual(result, {"Authorization": "Bearer test-jwt"})
         self.assertEqual(mock_post.call_count, 2)
-        mock_sleep.assert_called_once_with(1.0)
+        mock_sleep.assert_called_once()
 
     @patch("hermes.agent.service.oauth_login_token_provider.time.sleep")
     @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
     def test_retry_on_5xx_exhausted_raises(self, mock_post, mock_sleep):
         error_response = Mock()
         error_response.status_code = 503
-        error_response.raise_for_status.side_effect = requests.HTTPError(
-            "503 Service Unavailable", response=error_response
-        )
         mock_post.return_value = error_response
         provider = self._make_provider()
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(_RetryableHTTPError):
             provider.get_token()
         self.assertEqual(mock_post.call_count, 3)
         self.assertEqual(mock_sleep.call_count, 2)
@@ -510,14 +511,11 @@ class OAuthLoginTokenProviderTests(TestCase):
     def test_retry_backoff_doubles(self, mock_post, mock_sleep):
         error_response = Mock()
         error_response.status_code = 502
-        error_response.raise_for_status.side_effect = requests.HTTPError(
-            "502 Bad Gateway", response=error_response
-        )
         mock_post.return_value = error_response
         provider = self._make_provider()
 
-        with self.assertRaises(requests.HTTPError):
+        with self.assertRaises(_RetryableHTTPError):
             provider.get_token()
         self.assertEqual(mock_sleep.call_count, 2)
-        mock_sleep.assert_any_call(1.0)
-        mock_sleep.assert_any_call(2.0)
+        mock_sleep.assert_any_call(1)
+        mock_sleep.assert_any_call(2)
