@@ -178,3 +178,114 @@ class OnPremServiceTests(TestCase):
             )
         setup_mock.assert_not_called()
         self.assertIsNone(service._logs_service)
+
+    # ------------------------------------------------------------------
+    # OAuth provider selection
+    # ------------------------------------------------------------------
+
+    @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_provider_selected_when_file_path_set(self, mock_oauth_cls):
+        mock_oauth_cls.return_value = Mock()
+        with patch.dict(
+            "os.environ",
+            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        mock_oauth_cls.assert_called_once_with(
+            file_path="/etc/secrets/mcd-oauth/credentials.json",
+            backend_service_url="https://artemis.getmontecarlo.com:443",
+            token_endpoint=None,
+        )
+
+    @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
+    @patch("hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", "/some/file")
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT", None)
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_takes_precedence_over_file_token(self, mock_oauth_cls):
+        mock_oauth_cls.return_value = Mock()
+        with patch.dict(
+            "os.environ",
+            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        mock_oauth_cls.assert_called_once()
+        self.assertIs(service._login_token_provider, mock_oauth_cls.return_value)
+
+    @patch("hermes.agent.service.on_prem_service.OAuthLoginTokenProvider")
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_TOKEN_ENDPOINT",
+        "https://custom.example.com/oauth2/token",
+    )
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH",
+        "/etc/secrets/mcd-oauth/credentials.json",
+    )
+    def test_oauth_token_endpoint_override_passed_through(self, mock_oauth_cls):
+        mock_oauth_cls.return_value = Mock()
+        with patch.dict(
+            "os.environ",
+            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        mock_oauth_cls.assert_called_once_with(
+            file_path="/etc/secrets/mcd-oauth/credentials.json",
+            backend_service_url="https://artemis.getmontecarlo.com:443",
+            token_endpoint="https://custom.example.com/oauth2/token",
+        )
+
+    # ------------------------------------------------------------------
+    # Fallback provider selection
+    # ------------------------------------------------------------------
+
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH", None)
+    @patch(
+        "hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", "/some/token/file"
+    )
+    def test_file_provider_when_no_oauth(self):
+        with patch.dict(
+            "os.environ",
+            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        from apollo.egress.agent.service.file_login_token_provider import (
+            FileLoginTokenProvider,
+        )
+
+        self.assertIsInstance(service._login_token_provider, FileLoginTokenProvider)
+
+    @patch("hermes.agent.service.on_prem_service._MCD_TOKEN_FILE_PATH", None)
+    @patch("hermes.agent.service.on_prem_service._MCD_OAUTH_FILE_PATH", None)
+    def test_local_provider_when_no_oauth_no_file(self):
+        with patch.dict(
+            "os.environ",
+            {"MCD_IN_PROCESS_LOGS_ENABLED": "false"},
+        ):
+            service = OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        from apollo.egress.agent.service.login_token_provider import (
+            LocalLoginTokenProvider,
+        )
+
+        self.assertIsInstance(service._login_token_provider, LocalLoginTokenProvider)

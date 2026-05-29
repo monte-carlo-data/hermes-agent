@@ -12,7 +12,8 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | Namespace | configurable (default `mcd-agent`) | Always |
 | ServiceAccount | `mcd-agent-service-account` | Always |
 | SecretStore | `mcd-agent-secret-store` | `!skipExternalSecrets` |
-| ExternalSecret | `mcd-agent-token-secret` | `!skipExternalSecrets` |
+| ExternalSecret | `mcd-agent-token-secret` | `tokenSecret.remoteRef` is set |
+| ExternalSecret | `mcd-oauth-secret` | `oauthSecret.remoteRef` is set |
 | ExternalSecret | `mcd-integrations-secrets` | `!skipExternalSecrets` |
 | ClusterRole + Binding | `mcd-agent-metrics-reader` | `metricsCollector.enabled` |
 
@@ -242,6 +243,59 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 | `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
 When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
+
+### OAuth Authentication
+
+The agent supports OAuth 2.0 `client_credentials` authentication as an alternative to the
+key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires Bearer tokens
+and uses them for all backend communication. The chart uses one authentication method at a time
+— when OAuth is enabled, only the OAuth secret is mounted.
+
+| Property | Description | Default |
+|---|---|---|
+| `oauthSecret.remoteRef` | ExternalSecret remote reference (cloud deployments) | _(unset — OAuth disabled)_ |
+| `oauthSecret.enabled` | Enable OAuth for manual deployments (`skipExternalSecrets: true`) | `false` |
+| `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
+
+**Cloud deployments** (ExternalSecret): Set `oauthSecret.remoteRef` to point to a secret in your
+cloud secret manager containing JSON: `{"client_id": "...", "client_secret": "..."}`. The chart
+creates an ExternalSecret that syncs it as a K8s Secret named `mcd-oauth-secret`.
+
+```yaml
+oauthSecret:
+  remoteRef:
+    key: <your-oauth-secret-name>
+```
+
+**Local/manual deployments** (`skipExternalSecrets: true`): Create the `mcd-oauth-secret` K8s
+Secret manually and set `oauthSecret.enabled: true`:
+
+```bash
+kubectl create secret generic mcd-oauth-secret \
+  --namespace mcd-agent \
+  --from-file=credentials.json=/path/to/oauth-creds.json
+```
+
+```yaml
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+```
+
+**Docker Compose:** Mount a JSON credentials file and set `MCD_OAUTH_FILE_PATH` to its path:
+
+```yaml
+services:
+  mcd-agent:
+    environment:
+      - MCD_OAUTH_FILE_PATH=/etc/secrets/mcd-oauth/credentials.json
+    volumes:
+      - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
+```
+
+By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
+first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private
+Cognito deployments where the default derivation doesn't apply.
 
 ### Metrics Collector
 

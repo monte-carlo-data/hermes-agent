@@ -142,6 +142,27 @@ kubectl create secret generic mcd-agent-token-secret \
   --from-literal=contents.json='{"mcd_id":"<id>","mcd_token":"<secret>"}'
 ```
 
+#### 6a-alt — Use OAuth authentication (alternative to token secret)
+
+Instead of the key/token secret, you can authenticate via OAuth `client_credentials`. Create a JSON credentials file and a K8s Secret from it:
+
+```bash
+# Create the credentials file
+cat > /tmp/oauth-creds.json << 'EOF'
+{"client_id": "<your-client-id>", "client_secret": "<your-client-secret>"}
+EOF
+
+# Create the K8s secret (the key must be credentials.json)
+kubectl create secret generic mcd-oauth-secret \
+  --namespace mcd-agent \
+  --from-file=credentials.json=/tmp/oauth-creds.json
+
+# Clean up the local file
+rm /tmp/oauth-creds.json
+```
+
+Then add `--set oauthSecret.enabled=true` to your `helm upgrade` command. When OAuth is configured, the chart mounts only the OAuth secret (token secret is not used). See the [Helm chart README](helm/README.md#oauth-authentication) for details.
+
 #### 6b — Create the integrations secret
 
 For testing PostgreSQL connectivity, create a secret with the connection details. The key name (e.g. `pg_local.json`) must match the `file_path` configured in the Monte Carlo connection settings.
@@ -186,7 +207,7 @@ The Helm chart can ship agent logs to the orchestrator (`/api/v1/agent/logs`) on
 | `fluentd` | A fluentd DaemonSet (`logs-collector`) tails container log files from each node and forwards them to the same endpoint. | Requires root pods (host log paths are root-owned). |
 | `none` | No MC log shipping. The agent emits structured JSON to stdout. | Bring your own logging stack. |
 
-Both shipping modes authenticate to the orchestrator with `x-mcd-id` / `x-mcd-token` headers extracted at startup from the `mcd-agent-token-secret` Kubernetes Secret (`contents.json` → `mcd_id` + `mcd_token`).
+Both shipping modes authenticate to the orchestrator using whichever authentication method is configured — OAuth Bearer tokens (when `oauthSecret` is configured) or `x-mcd-id` / `x-mcd-token` headers from the `mcd-agent-token-secret` Secret.
 
 #### `logShipping: in-process`
 
@@ -301,4 +322,4 @@ kubectl get all -n mcd-agent
 - **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
 - **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
 - **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
-- **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: fluentd` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes require the `mcd-agent-token-secret` to authenticate with the orchestrator.
+- **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: fluentd` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes authenticate to the orchestrator using whichever method is configured — OAuth (`oauthSecret`) or `x-mcd-id`/`x-mcd-token` headers from the `mcd-agent-token-secret`.

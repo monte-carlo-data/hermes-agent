@@ -20,6 +20,7 @@ from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProv
 from apollo.egress.agent.service.storage_service import EmptyStorageService
 
 from hermes.agent.service.metrics_service import MetricsService
+from hermes.agent.service.oauth_login_token_provider import OAuthLoginTokenProvider
 from hermes.agent.settings import BUILD_NUMBER, VERSION
 
 _BACKEND_SERVICE_URL = os.getenv(
@@ -27,6 +28,8 @@ _BACKEND_SERVICE_URL = os.getenv(
     "https://artemis.getmontecarlo.com:443",
 )
 _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
+_MCD_OAUTH_FILE_PATH = os.getenv("MCD_OAUTH_FILE_PATH")
+_MCD_OAUTH_TOKEN_ENDPOINT = os.getenv("MCD_OAUTH_TOKEN_ENDPOINT")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
@@ -45,7 +48,17 @@ class OnPremService(BaseEgressAgentService):
         instance_id: Optional[str] = None,
     ):
         logger.info(f"Using backend service URL: {_BACKEND_SERVICE_URL}")
-        if _MCD_TOKEN_FILE_PATH:
+
+        if _MCD_OAUTH_FILE_PATH:
+            logger.info(
+                f"Using OAuth client_credentials authentication from file: {_MCD_OAUTH_FILE_PATH}"
+            )
+            login_token_provider = OAuthLoginTokenProvider(
+                file_path=_MCD_OAUTH_FILE_PATH,
+                backend_service_url=_BACKEND_SERVICE_URL,
+                token_endpoint=_MCD_OAUTH_TOKEN_ENDPOINT,
+            )
+        elif _MCD_TOKEN_FILE_PATH:
             logger.info(f"Getting MCD token from file: {_MCD_TOKEN_FILE_PATH}")
             login_token_provider = FileLoginTokenProvider(
                 file_path=_MCD_TOKEN_FILE_PATH,

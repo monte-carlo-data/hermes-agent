@@ -1,4 +1,10 @@
 {{- include "hermes.logShipping.validate" . }}
+{{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) }}
+{{- fail "oauthSecret.tokenEndpoint must use HTTPS" }}
+{{- end }}
+{{- if and (not .Values.skipExternalSecrets) (not (or ((.Values.tokenSecret).remoteRef) (and .Values.oauthSecret .Values.oauthSecret.remoteRef))) }}
+{{- fail "When skipExternalSecrets is false, either tokenSecret.remoteRef or oauthSecret.remoteRef must be set" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -81,13 +87,23 @@ spec:
               value: {{ .Values.container.opsRunnerThreadCount | default "18" | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
+            {{- if not (include "hermes.oauth.enabled" .) }}
             - name: MCD_TOKEN_FILE_PATH
               value: /etc/secrets/mcd-agent-token/contents.json
+            {{- end }}
             - name: MCD_IN_PROCESS_LOGS_ENABLED
               value: {{ eq .Values.logShipping "in-process" | quote }}
             {{- if eq .Values.logShipping "in-process" }}
             - name: MCD_IN_PROCESS_LOGS_LEVEL
               value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
+            {{- end }}
+            {{- if include "hermes.oauth.enabled" . }}
+            - name: MCD_OAUTH_FILE_PATH
+              value: /etc/secrets/mcd-oauth/credentials.json
+            {{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint }}
+            - name: MCD_OAUTH_TOKEN_ENDPOINT
+              value: {{ .Values.oauthSecret.tokenEndpoint | quote }}
+            {{- end }}
             {{- end }}
             {{- if .Values.container.storageEndpointUrl }}
             - name: MCD_STORAGE_ENDPOINT_URL
@@ -113,9 +129,15 @@ spec:
             {{- .Values.container.extraEnv | toYaml | nindent 12 }}
             {{- end }}
           volumeMounts:
+            {{- if not (include "hermes.oauth.enabled" .) }}
             - name: mcd-agent-token-secret
               mountPath: /etc/secrets/mcd-agent-token
               readOnly: true
+            {{- else }}
+            - name: mcd-oauth-secret
+              mountPath: /etc/secrets/mcd-oauth
+              readOnly: true
+            {{- end }}
             - name: mcd-integrations-secrets
               mountPath: /etc/secrets/integrations
               readOnly: true
@@ -126,9 +148,15 @@ spec:
             {{- .Values.extraVolumeMounts | toYaml | nindent 12 }}
             {{- end }}
       volumes:
+        {{- if not (include "hermes.oauth.enabled" .) }}
         - name: mcd-agent-token-secret
           secret:
             secretName: mcd-agent-token-secret
+        {{- else }}
+        - name: mcd-oauth-secret
+          secret:
+            secretName: mcd-oauth-secret
+        {{- end }}
         - name: mcd-integrations-secrets
           secret:
             secretName: mcd-integrations-secrets

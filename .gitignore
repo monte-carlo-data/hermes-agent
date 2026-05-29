@@ -213,6 +213,9 @@ errored.tfstate
 # Claude Code
 .claude/scheduled_tasks.lock
 
+# Working files (code review artifacts, plans, etc.)
+.work/
+
 # Local agent secrets (real credentials)
 environments/local/secrets/agent-token.json
 environments/local/secrets/postgres.json
