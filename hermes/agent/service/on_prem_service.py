@@ -30,6 +30,9 @@ _MCD_TOKEN_FILE_PATH = os.getenv("MCD_TOKEN_FILE_PATH")
 _NETWORK_PATH_PREFIX = "/api/v1/test/network/"
 _CUSTOM_CONNECTORS_MANIFESTS_PATH = "/api/v1/agent/custom-connectors/manifests"
 _CONNECTORS_TYPES_PATH = "/api/v1/agent/connectors/types"
+_VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX = (
+    "/api/v1/self-hosted-credentials/validate/"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +88,13 @@ class OnPremService(BaseEgressAgentService):
                 path=_CONNECTORS_TYPES_PATH,
                 matching_type=OperationMatchingType.EQUALS,
                 method=self._execute_supported_connector_types,
+            )
+        )
+        self._operations_mapping.append(
+            OperationMapping(
+                path=_VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX,
+                matching_type=OperationMatchingType.STARTS_WITH,
+                method=self._execute_validate_self_hosted_credentials,
             )
         )
 
@@ -199,6 +209,45 @@ class OnPremService(BaseEgressAgentService):
                 operation.get("trace_id") if isinstance(operation, dict) else None
             )
             response = self._agent.get_supported_connector_types(trace_id)
+            self._schedule_push_results(operation_id, response.result)
+        except Exception as ex:
+            self._schedule_push_results(operation_id, self._result_for_exception(ex))
+
+    def _execute_validate_self_hosted_credentials(
+        self,
+        operation_id: str,
+        event: Dict[str, Any],
+    ):
+        """Egress counterpart to the Flask /api/v1/self-hosted-credentials/validate/
+        route in apollo-agent.
+
+        Thin wrapper: parse the connection_type out of the path and hand off
+        the raw credentials envelope to ``Agent.validate_self_hosted_credentials``,
+        which owns the self-hosted guard, the secret-store fetch, and the
+        schema validation. Keeping that pipeline in the agent means the
+        Flask and egress entry points share a single implementation.
+        """
+        try:
+            path = event.get("path")
+            if not path or not path.startswith(
+                _VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX
+            ):
+                raise ValueError(f"Invalid path: {path}")
+            connection_type = path.removeprefix(
+                _VALIDATE_SELF_HOSTED_CREDENTIALS_PATH_PREFIX
+            )
+            if not connection_type:
+                raise ValueError(f"Missing connection_type in path: {path}")
+
+            operation = event.get("operation")
+            trace_id = (
+                operation.get("trace_id") if isinstance(operation, dict) else None
+            )
+            response = self._agent.validate_self_hosted_credentials(
+                connection_type=connection_type,
+                credentials=event.get("credentials"),
+                trace_id=trace_id,
+            )
             self._schedule_push_results(operation_id, response.result)
         except Exception as ex:
             self._schedule_push_results(operation_id, self._result_for_exception(ex))

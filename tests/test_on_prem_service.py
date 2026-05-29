@@ -98,6 +98,36 @@ class OnPremServiceTests(TestCase):
         )
         get_types_mock.assert_called_once_with("3456")
 
+    @patch(
+        "hermes.agent.service.on_prem_service.Agent.validate_self_hosted_credentials"
+    )
+    def test_validate_self_hosted_credentials_routes_to_agent(self, validate_mock):
+        # The handler parses connection_type from the path and forwards the
+        # raw credentials envelope to the agent. Guarding, fetching, and
+        # schema validation are owned by the agent so there is only one
+        # implementation across the Flask and egress entry points.
+        validate_mock.return_value = Mock(result={"valid": True})
+
+        envelope = {
+            "self_hosted_credentials_type": "aws_secrets_manager",
+            "aws_secret": "arn:aws:secretsmanager:us-east-1:1:secret:x",
+        }
+        self._service._execute_scheduled_operation(
+            Operation(
+                operation_id="7890",
+                event={
+                    "path": "/api/v1/self-hosted-credentials/validate/snowflake",
+                    "credentials": envelope,
+                    "operation": {"trace_id": "7890"},
+                },
+            )
+        )
+        validate_mock.assert_called_once_with(
+            connection_type="snowflake",
+            credentials=envelope,
+            trace_id="7890",
+        )
+
     @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
     def test_in_process_logs_enabled_wires_logs_service(self, setup_mock):
         # Drives the activation branch of _build_logs_service: when

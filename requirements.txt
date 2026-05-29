@@ -59,6 +59,8 @@ cachetools==5.3.3
     # via mcd-agent
 cattrs==26.1.0
     # via looker-sdk
+cerberus==1.3.8
+    # via mcd-agent
 certifi==2026.4.22
     # via
     #   clickhouse-connect
@@ -205,7 +207,7 @@ markupsafe==3.0.3
     #   werkzeug
 marshmallow==3.26.2
     # via dataclasses-json
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.7
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.6.10
     # via -r requirements.in
 more-itertools==11.0.2
     # via simple-salesforce
@@ -223,7 +225,6 @@ numpy==1.26.4
     #   databricks-sql-connector
     #   mcd-agent
     #   pandas
-    #   pyarrow
 oauthlib==3.3.1
     # via databricks-sql-connector
 openpyxl==3.1.5
@@ -269,7 +270,7 @@ psycopg2-binary==2.9.9
     # via mcd-agent
 pure-sasl==0.6.2
     # via thrift-sasl
-pyarrow==17.0.0
+pyarrow==23.0.1
     # via
     #   mcd-agent
     #   salesforce-cdp-connector
@@ -368,7 +369,7 @@ sseclient==0.0.27
     # via agent-common
 tableauserverclient==0.38
     # via mcd-agent
-teradatasql==20.0.0.57
+teradatasql==20.0.0.59
     # via mcd-agent
 thrift==0.16.0
     # via
