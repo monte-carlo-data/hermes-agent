@@ -1,5 +1,4 @@
-# TEMP (dev validation): pinned to the agent-common feature branch; flip to the released tag after agent-common PR #22 merges.
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@cfritz/agent-common-ack-removal
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.6
 # When bumping this version, also bump the corresponding `<version>-system-base`
 # image tag in the Dockerfile FROM so the runtime image matches the python pin.
 mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.8.5
