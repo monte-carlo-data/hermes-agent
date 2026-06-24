@@ -157,7 +157,10 @@ class OnPremService(BaseEgressAgentService):
                 if network_command == "open":
                     method = self._agent.validate_tcp_open_connection
                 elif network_command == "telnet":
-                    method = self._agent.validate_telnet_connection
+                    # Telnet validation is retired (telnetlib removed in py3.13); the agent's
+                    # validate_telnet_connection is a deprecated alias for TCP-open. Call TCP-open
+                    # directly so we stop invoking the agent's telnet path.
+                    method = self._agent.validate_tcp_open_connection
                 elif network_command == "dns":
                     method = self._agent.perform_dns_lookup
                     include_timeout = False
