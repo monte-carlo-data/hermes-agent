@@ -45,6 +45,14 @@ container:
     # limits:
     #   cpu: "2"
     #   memory: "2Gi"
+  # Additional environment variables for the agent container, as a native
+  # Kubernetes env list (rendered verbatim). Advanced/optional — used to enable
+  # optional agent features. Thick mode requires an image that ships the Oracle
+  # Instant Client and a dedicated agent (thick is process-wide). Example:
+  #   extraEnv:
+  #     - name: MCD_ORACLE_THICK_MODE
+  #       value: "true"
+  extraEnv: []
 
 # Horizontal Pod Autoscaling for the agent deployment.
 # Requires container.resources.requests to be set and metrics-server installed
