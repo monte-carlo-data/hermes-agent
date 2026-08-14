@@ -7,7 +7,15 @@ from unittest.mock import Mock, patch
 
 import requests
 
+from apollo.egress.agent.service.login_token_provider import (
+    ATTR_NAME_AUTH_METHOD,
+    ATTR_NAME_KEY_ID,
+)
+
 from hermes.agent.service.oauth_login_token_provider import (
+    ATTR_NAME_CREDENTIALS_FILE_PATH,
+    ATTR_NAME_TOKEN_ENDPOINT,
+    AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS,
     OAuthLoginTokenProvider,
     OAuthTokenError,
     _RetryableHTTPError,
@@ -519,3 +527,66 @@ class OAuthLoginTokenProviderTests(TestCase):
         self.assertEqual(mock_sleep.call_count, 2)
         mock_sleep.assert_any_call(1)
         mock_sleep.assert_any_call(2)
+
+
+class OAuthCredentialReportingTests(TestCase):
+    """The client id must be reportable without fetching (or leaking) a token."""
+
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self._creds_path = os.path.join(self._dir.name, "credentials.json")
+
+    def _write_credentials(self, contents: str):
+        with open(self._creds_path, "w") as f:
+            f.write(contents)
+
+    def _make_provider(self):
+        return OAuthLoginTokenProvider(
+            file_path=self._creds_path,
+            backend_service_url="https://artemis.getmontecarlo.com",
+        )
+
+    def test_credential_info_reports_client_id_and_never_the_secret(self):
+        self._write_credentials(
+            json.dumps({"client_id": "a-client-id", "client_secret": "a-client-secret"})
+        )
+        provider = self._make_provider()
+
+        credential_info = provider.get_credential_info()
+
+        self.assertEqual(
+            {
+                ATTR_NAME_KEY_ID: "a-client-id",
+                ATTR_NAME_AUTH_METHOD: AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS,
+                ATTR_NAME_CREDENTIALS_FILE_PATH: self._creds_path,
+                ATTR_NAME_TOKEN_ENDPOINT: "https://m2m.getmontecarlo.com/oauth2/token",
+            },
+            credential_info,
+        )
+        self.assertNotIn("a-client-secret", json.dumps(credential_info))
+
+    @patch("hermes.agent.service.oauth_login_token_provider.requests.post")
+    def test_credential_id_does_not_fetch_a_token(self, mock_post):
+        self._write_credentials(
+            json.dumps({"client_id": "a-client-id", "client_secret": "a-client-secret"})
+        )
+        provider = self._make_provider()
+
+        self.assertEqual("a-client-id", provider.get_credential_id())
+        mock_post.assert_not_called()
+
+    def test_credential_id_reports_no_client_id_when_file_is_missing(self):
+        provider = self._make_provider()
+
+        self.assertEqual("no-client-id", provider.get_credential_id())
+        self.assertEqual(
+            self._creds_path,
+            provider.get_credential_info()[ATTR_NAME_CREDENTIALS_FILE_PATH],
+        )
+
+    def test_credential_id_reports_no_client_id_when_file_is_unparseable(self):
+        self._write_credentials("not json")
+        provider = self._make_provider()
+
+        self.assertEqual("no-client-id", provider.get_credential_id())

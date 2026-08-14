@@ -2,7 +2,7 @@ import json
 import logging
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlparse
 
 import requests
@@ -12,6 +12,11 @@ from retry import retry
 from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
 
 logger = logging.getLogger(__name__)
+
+AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS = "oauth_client_credentials"
+ATTR_NAME_CREDENTIALS_FILE_PATH = "credentials_file_path"
+ATTR_NAME_TOKEN_ENDPOINT = "token_endpoint"
+_NO_CLIENT_ID = "no-client-id"
 
 # Intentionally hardcoded — the Cognito resource server identifier is the same
 # across all regional deployments.
@@ -34,6 +39,8 @@ class _RetryableHTTPError(Exception):
 
 class OAuthLoginTokenProvider(LoginTokenProvider):
     """OAuth 2.0 client_credentials token provider for Monte Carlo backend auth."""
+
+    authentication_method: str = AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS
 
     def __init__(
         self,
@@ -90,6 +97,29 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
                         )
 
         return {"Authorization": f"Bearer {self._access_token}"}
+
+    def get_credential_id(self) -> Optional[str]:
+        """Return the OAuth client id, for reporting only.
+
+        Reads the credentials file directly: the id has to be reportable when
+        the token request is what's failing, so this never hits the network and
+        never raises.
+        """
+        try:
+            client_id, _ = self._read_credentials()
+            return client_id
+        except OAuthTokenError as ex:
+            logger.warning(f"Failed to resolve the OAuth client id: {ex}")
+            return _NO_CLIENT_ID
+
+    def get_credential_info(self) -> Dict[str, Any]:
+        # The file path and the token endpoint are included so a misconfigured
+        # secret mount or a wrong endpoint is self-evident from the output.
+        return {
+            **super().get_credential_info(),
+            ATTR_NAME_CREDENTIALS_FILE_PATH: self._file_path,
+            ATTR_NAME_TOKEN_ENDPOINT: self._token_endpoint,
+        }
 
     def _needs_refresh(self) -> bool:
         if self._access_token is None:
