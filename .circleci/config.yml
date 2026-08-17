@@ -182,8 +182,12 @@ jobs:
         type: string
     steps:
       - run:
-          name: Trigger Hermes agent deployment in data-collector
+          name: Trigger Hermes agent deployment
           command: |
+            # The deployment project and its pipeline definition are supplied by the
+            # hermes-agent context, so this repository carries no reference to them.
+            : "${DEPLOY_PROJECT_SLUG:?not set - expected from the hermes-agent context}"
+            : "${DEPLOY_PIPELINE_DEFINITION_ID:?not set - expected from the hermes-agent context}"
             # Version is set in BASH_ENV by generate-version-number-dev (NEXT_VERSION)
             # or generate-version-number-prod (VERSION_TAG) in pre-steps.
             HERMES_VERSION="${NEXT_VERSION:-${VERSION_TAG}}"
@@ -193,12 +197,12 @@ jobs:
             else
               DEPLOY_BRANCH="main"
             fi
-            echo "Using data-collector branch: ${DEPLOY_BRANCH}"
-            curl -f -X POST "https://circleci.com/api/v2/project/github/monte-carlo-data/data-collector/pipeline/run" \
+            echo "Using deploy branch: ${DEPLOY_BRANCH}"
+            curl -f -X POST "https://circleci.com/api/v2/project/${DEPLOY_PROJECT_SLUG}/pipeline/run" \
               -H "Circle-Token: ${CIRCLECI_API_TOKEN}" \
               -H "Content-Type: application/json" \
               -d '{
-                "definition_id": "REDACTED_PIPELINE_DEFINITION_ID",
+                "definition_id": "'"${DEPLOY_PIPELINE_DEFINITION_ID}"'",
                 "config": {
                   "branch": "'"${DEPLOY_BRANCH}"'"
                 },
@@ -281,6 +285,7 @@ workflows:
             - generate-version-number-dev
           context:
             - circleci-secret
+            - hermes-agent
           requires:
             - build-and-push-helm-chart-dev
       - build-and-push-helm-chart:
@@ -307,6 +312,7 @@ workflows:
             - generate-version-number-prod
           context:
             - circleci-secret
+            - hermes-agent
           requires:
             - build-and-push-helm-chart-prod
           filters:
