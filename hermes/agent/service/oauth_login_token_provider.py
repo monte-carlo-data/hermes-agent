@@ -104,11 +104,18 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         Reads the credentials file directly: the id has to be reportable when
         the token request is what's failing, so this never hits the network and
         never raises.
+
+        Catches everything rather than only ``OAuthTokenError``: reading the
+        file can fail in ways ``_read_credentials`` doesn't convert — a bind
+        mount whose host file is missing leaves a *directory* at the container
+        path (``IsADirectoryError``), and a non-UTF8 file raises while decoding.
+        Those are misconfigured mounts, exactly what this reports on, so they
+        must produce ``no-client-id`` and not a silent empty payload.
         """
         try:
             client_id, _ = self._read_credentials()
             return client_id
-        except OAuthTokenError as ex:
+        except Exception as ex:
             logger.warning(f"Failed to resolve the OAuth client id: {ex}")
             return _NO_CLIENT_ID
 

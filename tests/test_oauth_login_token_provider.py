@@ -590,3 +590,22 @@ class OAuthCredentialReportingTests(TestCase):
         provider = self._make_provider()
 
         self.assertEqual("no-client-id", provider.get_credential_id())
+
+    def test_credential_id_reports_no_client_id_when_path_is_a_directory(self):
+        # Docker creates a directory at the container path when the host file
+        # in a bind mount is missing — the misconfigured mount this reports on.
+        os.mkdir(self._creds_path)
+        provider = self._make_provider()
+
+        self.assertEqual("no-client-id", provider.get_credential_id())
+        self.assertEqual(
+            self._creds_path,
+            provider.get_credential_info()[ATTR_NAME_CREDENTIALS_FILE_PATH],
+        )
+
+    def test_credential_id_reports_no_client_id_when_file_is_not_utf8(self):
+        with open(self._creds_path, "wb") as f:
+            f.write(b"\xff\xfe\x00")
+        provider = self._make_provider()
+
+        self.assertEqual("no-client-id", provider.get_credential_id())
