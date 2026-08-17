@@ -69,6 +69,11 @@ def run_reachability_test():
     """
     Checks connectivity to the Monte Carlo backend.
 
+    When the backend rejects the request, the response also reports which
+    credential the agent used (its id, never the secret): authentication
+    failures are rejected at the gateway, so this is the only place they can
+    be diagnosed from.
+
     Example:
         kubectl exec deploy/mcd-agent-deployment -n mcd-agent -- curl -s -X POST http://localhost:8080/api/v1/test/reachability
     """

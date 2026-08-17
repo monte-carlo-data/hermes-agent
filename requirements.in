@@ -1,4 +1,4 @@
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.8
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.9
 # When bumping this version, also bump the corresponding `<version>-system-base`
 # image tag in the Dockerfile FROM so the runtime image matches the python pin.
 mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.11.1
