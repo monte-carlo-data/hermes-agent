@@ -1,7 +1,7 @@
 -c requirements.txt
-black==24.3.0
+black==26.3.1
 pip-tools==7.5.2
 pre-commit==3.5.0
 pyright==1.1.407
-pytest==7.4.2
+pytest==9.0.3
 urllib3~=2.6

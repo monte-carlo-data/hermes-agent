@@ -4,7 +4,7 @@
 #
 #    pip-compile --strip-extras requirements-dev.in
 #
-black==24.3.0
+black==26.3.1
     # via -r requirements-dev.in
 build==1.5.0
     # via pip-tools
@@ -55,16 +55,20 @@ pluggy==1.6.0
     # via pytest
 pre-commit==3.5.0
     # via -r requirements-dev.in
+pygments==2.21.0
+    # via pytest
 pyproject-hooks==1.2.0
     # via
     #   build
     #   pip-tools
 pyright==1.1.407
     # via -r requirements-dev.in
-pytest==7.4.2
+pytest==9.0.3
     # via -r requirements-dev.in
 python-discovery==1.4.2
     # via virtualenv
+pytokens==0.4.1
+    # via black
 pyyaml==6.0.3
     # via pre-commit
 typing-extensions==4.15.0
