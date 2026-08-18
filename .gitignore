@@ -229,6 +229,5 @@ environments/local/secrets/postgres.json
 *.der
 *.p12
 *.pfx
-id_rsa
-id_rsa.*
+id_rsa*
 .pgpass

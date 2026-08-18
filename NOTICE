@@ -3,13 +3,15 @@ Copyright 2025 Monte Carlo Data, Inc. (now known as Monte Carlo AI, Inc.)
 
 This product bundles the third-party Python packages listed below. They are
 installed into the published container image from the versions pinned in
-requirements.txt, and remain under their own licenses and copyrights.
+requirements.txt, plus the packages the Dockerfile installs directly into the
+virtual environment. They remain under their own licenses and copyrights.
 
 Regenerate with: python scripts/generate_notice.py
 
-Scope: this file covers the Python dependencies bundled into the image. It does
-not cover operating system packages inherited from the base image, which carry
-their own licenses and are documented by that image.
+Scope: this file covers the Python packages bundled into the image. Operating
+system packages come from the Debian-based image this one is built on and are
+not listed here; they retain their own licenses, and their per-package copyright
+files ship inside the image under /usr/share/doc/*/copyright.
 
 ==============================================================================
 Monte Carlo components (first-party, not third-party dependencies)
@@ -20,11 +22,11 @@ agent-common - https://github.com/monte-carlo-data/agent-common.git@v0.2.9
 mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.11.1
 
 ==============================================================================
-Third-party Python packages (119)
+Third-party Python packages (121)
 ==============================================================================
 
 asn1crypto                   MIT  <https://github.com/wbond/asn1crypto>
-attrs                        MIT  <https://pypi.org/project/attrs/>
+attrs                        MIT  <https://github.com/python-attrs/attrs>
 azure-common                 MIT License  <https://github.com/Azure/azure-sdk-for-python>
 azure-core                   MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core>
 azure-identity               MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/identity/azure-identity>
@@ -33,30 +35,30 @@ azure-mgmt-core              MIT License  <https://github.com/Azure/azure-sdk-fo
 azure-mgmt-storage           MIT License  <https://github.com/Azure/azure-sdk-for-python>
 azure-storage-blob           MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/storage/azure-storage-blob>
 bitarray                     PSF-2.0  <https://github.com/ilanschnell/bitarray>
-blinker                      MIT License  <https://pypi.org/project/blinker/>
+blinker                      MIT License  <https://github.com/pallets-eco/blinker/>
 boto3                        Apache License 2.0  <https://github.com/boto/boto3>
 botocore                     Apache License 2.0  <https://github.com/boto/botocore>
 brotli                       MIT  <https://github.com/google/brotli>
 cachetools                   MIT  <https://github.com/tkem/cachetools/>
-cattrs                       MIT  <https://pypi.org/project/cattrs/>
-cerberus                     ISC License  <https://pypi.org/project/Cerberus/>
+cattrs                       MIT  <https://catt.rs>
+cerberus                     ISC License  <https://github.com/pyeve/cerberus>
 certifi                      MPL-2.0  <https://github.com/certifi/python-certifi>
-cffi                         MIT  <https://pypi.org/project/cffi/>
-charset-normalizer           MIT  <https://pypi.org/project/charset-normalizer/>
-click                        BSD-3-Clause  <https://pypi.org/project/click/>
+cffi                         MIT  <https://github.com/python-cffi/cffi>
+charset-normalizer           MIT  <https://github.com/jawah/charset_normalizer>
+click                        BSD-3-Clause  <https://github.com/pallets/click/>
 clickhouse-connect           Apache License 2.0  <https://github.com/ClickHouse/clickhouse-connect>
-cryptography                 Apache-2.0 OR BSD-3-Clause  <https://pypi.org/project/cryptography/>
+cryptography                 Apache-2.0 OR BSD-3-Clause  <https://cryptography.io/en/latest/changelog/>
 databricks-sdk               Apache Software License  <https://databricks-sdk-py.readthedocs.io>
-databricks-sql-connector     Apache-2.0  <https://pypi.org/project/databricks-sql-connector/>
+databricks-sql-connector     Apache-2.0  <https://github.com/databricks/databricks-sql-python>
 dataclasses-json             MIT  <https://github.com/lidatong/dataclasses-json>
 decorator                    BSD-2-Clause  <https://pypi.org/project/decorator/>
 defusedxml                   PSFL  <https://github.com/tiran/defusedxml>
-duckdb                       MIT License  <https://pypi.org/project/duckdb/>
+duckdb                       MIT License  <https://github.com/duckdb/duckdb-python>
 et-xmlfile                   MIT  <https://foss.heptapod.net/openpyxl/et_xmlfile>
-filelock                     MIT  <https://pypi.org/project/filelock/>
-flask                        BSD License  <https://pypi.org/project/Flask/>
+filelock                     MIT  <https://github.com/tox-dev/py-filelock>
+flask                        BSD License  <https://github.com/pallets/flask/>
 flask-compress               MIT  <https://github.com/colour-science/flask-compress>
-google-api-core              Apache 2.0  <https://pypi.org/project/google-api-core/>
+google-api-core              Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/google-api-core>
 google-api-python-client     Apache 2.0  <https://github.com/googleapis/google-api-python-client/>
 google-auth                  Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/google-auth>
 google-auth-httplib2         Apache 2.0  <https://github.com/googleapis/google-cloud-python/packages/google-auth-httplib2>
@@ -66,79 +68,81 @@ google-cloud-secret-manager  Apache 2.0  <https://github.com/googleapis/google-c
 google-cloud-storage         Apache 2.0  <https://github.com/googleapis/python-storage>
 google-crc32c                Apache-2.0  <https://github.com/googleapis/python-crc32c>
 google-resumable-media       Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/google-resumable-media>
-googleapis-common-protos     Apache 2.0  <https://pypi.org/project/googleapis-common-protos/>
-grpc-google-iam-v1           Apache 2.0  <https://pypi.org/project/grpc-google-iam-v1/>
-grpcio                       Apache-2.0  <https://pypi.org/project/grpcio/>
+googleapis-common-protos     Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/googleapis-common-protos>
+grpc-google-iam-v1           Apache 2.0  <https://github.com/googleapis/google-cloud-python>
+grpcio                       Apache-2.0  <https://grpc.io>
 grpcio-status                Apache License 2.0  <https://grpc.io>
-gunicorn                     MIT  <https://pypi.org/project/gunicorn/>
+gunicorn                     MIT  <https://gunicorn.org>
 hdbcli                       SAP DEVELOPER LICENSE AGREEMENT  <https://www.sap.com/>
 httplib2                     MIT  <https://github.com/httplib2/httplib2>
 ibm-db                       Apache License 2.0  <http://pypi.python.org/pypi/ibm_db/>
-idna                         BSD-3-Clause  <https://pypi.org/project/idna/>
+idna                         BSD-3-Clause  <https://github.com/kjd/idna>
 impyla                       Apache License, Version 2.0  <https://github.com/cloudera/impyla>
-isodate                      BSD License  <https://pypi.org/project/isodate/>
-itsdangerous                 BSD License  <https://pypi.org/project/itsdangerous/>
-jinja2                       BSD License  <https://pypi.org/project/Jinja2/>
+isodate                      BSD License  <https://github.com/gweis/isodate/>
+itsdangerous                 BSD License  <https://github.com/pallets/itsdangerous/>
+jinja2                       BSD License  <https://github.com/pallets/jinja/>
 jmespath                     MIT  <https://github.com/jmespath/jmespath.py>
 lambda-git                   MIT License  <https://github.com/eredi93/lambda-git>
 looker-sdk                   MIT  <https://pypi.python.org/pypi/looker_sdk>
 lxml                         BSD-3-Clause  <https://lxml.de/>
 lz4                          BSD License  <https://github.com/python-lz4/python-lz4>
-markupsafe                   BSD-3-Clause  <https://pypi.org/project/MarkupSafe/>
-marshmallow                  MIT License  <https://pypi.org/project/marshmallow/>
-more-itertools               MIT  <https://pypi.org/project/more-itertools/>
+markupsafe                   BSD-3-Clause  <https://github.com/pallets/markupsafe/>
+marshmallow                  MIT License  <https://github.com/marshmallow-code/marshmallow>
+more-itertools               MIT  <https://github.com/more-itertools/more-itertools>
 msal                         MIT  <https://github.com/AzureAD/microsoft-authentication-library-for-python>
-msal-extensions              MIT License  <https://pypi.org/project/msal-extensions/>
+msal-extensions              MIT License  <https://github.com/AzureAD/microsoft-authentication-extensions-for-python/releases>
 mypy-extensions              MIT  <https://github.com/python/mypy_extensions>
-numpy                        BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0  <https://pypi.org/project/numpy/>
+numpy                        BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0  <https://numpy.org/doc/>
 oauthlib                     BSD-3-Clause  <https://github.com/oauthlib/oauthlib>
 openpyxl                     MIT  <https://openpyxl.readthedocs.io>
-oracledb                     UPL-1.0 OR Apache-2.0  <https://pypi.org/project/oracledb/>
-orjson                       MPL-2.0 AND (Apache-2.0 OR MIT)  <https://pypi.org/project/orjson/>
-packaging                    Apache-2.0 OR BSD-2-Clause  <https://pypi.org/project/packaging/>
-pandas                       BSD 3-Clause License  <https://pypi.org/project/pandas/>
-platformdirs                 MIT  <https://pypi.org/project/platformdirs/>
+oracledb                     UPL-1.0 OR Apache-2.0  <https://oracle.github.io/python-oracledb>
+orjson                       MPL-2.0 AND (Apache-2.0 OR MIT)  <https://github.com/ijl/orjson/blob/master/CHANGELOG.md>
+packaging                    Apache-2.0 OR BSD-2-Clause  <https://github.com/pypa/packaging>
+pandas                       BSD 3-Clause License  <https://pandas.pydata.org/docs/>
+pip                          MIT  <https://pip.pypa.io/>
+platformdirs                 MIT  <https://github.com/tox-dev/platformdirs>
 presto-python-client         Apache 2.0  <https://github.com/prestodb/presto-python-client>
-proto-plus                   Apache 2.0  <https://pypi.org/project/proto-plus/>
+proto-plus                   Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/proto-plus>
 protobuf                     3-Clause BSD License  <https://developers.google.com/protocol-buffers/>
 psycopg2-binary              LGPL with exceptions  <https://psycopg.org/>
 pure-sasl                    MIT  <http://github.com/thobbs/pure-sasl>
-pyarrow                      Apache-2.0  <https://pypi.org/project/pyarrow/>
-pyasn1                       BSD-2-Clause  <https://pypi.org/project/pyasn1/>
+pyarrow                      Apache-2.0  <https://arrow.apache.org/>
+pyasn1                       BSD-2-Clause  <https://github.com/pyasn1/pyasn1>
 pyasn1-modules               BSD  <https://github.com/pyasn1/pyasn1-modules>
-pybreaker                    BSD License  <https://pypi.org/project/pybreaker/>
-pycparser                    BSD-3-Clause  <https://pypi.org/project/pycparser/>
+pybreaker                    BSD License  <http://github.com/danielfm/pybreaker>
+pycparser                    BSD-3-Clause  <https://github.com/eliben/pycparser>
 pycryptodome                 BSD, Public Domain  <https://www.pycryptodome.org>
-pyjwt                        MIT  <https://pypi.org/project/PyJWT/>
-pymysql                      MIT  <https://pypi.org/project/PyMySQL/>
+pyjwt                        MIT  <https://github.com/jpadilla/pyjwt>
+pymysql                      MIT  <https://pymysql.readthedocs.io/>
 pyodbc                       MIT  <https://github.com/mkleehammer/pyodbc>
 pyopenssl                    Apache License, Version 2.0  <https://pyopenssl.org/>
-pyparsing                    MIT  <https://pypi.org/project/pyparsing/>
-python-dateutil              Dual License  <https://github.com/dateutil/dateutil>
+pyparsing                    MIT  <https://github.com/pyparsing/pyparsing/>
+python-dateutil              Apache Software License | BSD License  <https://github.com/dateutil/dateutil>
 pytz                         MIT  <http://pythonhosted.org/pytz>
-requests                     Apache-2.0  <https://pypi.org/project/requests/>
-requests-file                Apache 2.0  <https://pypi.org/project/requests-file/>
+requests                     Apache-2.0  <https://github.com/psf/requests>
+requests-file                Apache 2.0  <https://codeberg.org/dashea/requests-file>
 requests-toolbelt            Apache 2.0  <https://toolbelt.readthedocs.io/>
 retry2                       Apache License 2.0  <https://github.com/eSAMTrade/retry>
 s3transfer                   Apache License 2.0  <https://github.com/boto/s3transfer>
-salesforce-cdp-connector     BSD-3-Clause  <https://pypi.org/project/salesforce-cdp-connector/>
+salesforce-cdp-connector     BSD-3-Clause  <https://github.com/forcedotcom/salesforce-cdp-connector>
+setuptools                   MIT  <https://github.com/pypa/setuptools>
 simple-salesforce            Apache 2.0  <https://github.com/simple-salesforce/simple-salesforce>
 six                          MIT  <https://github.com/benjaminp/six>
 snowflake-connector-python   Apache-2.0  <https://www.snowflake.com/>
 sortedcontainers             Apache 2.0  <http://www.grantjenks.com/docs/sortedcontainers/>
 sseclient                    MIT License  <https://github.com/btubbs/sseclient>
-tableauserverclient          The MIT License (MIT)  <https://pypi.org/project/tableauserverclient/>
+tableauserverclient          The MIT License (MIT)  <https://github.com/tableau/server-client-python>
 teradatasql                  Teradata License Agreement  <http://www.teradata.com/>
 thrift                       Apache License 2.0  <http://thrift.apache.org>
 thrift-sasl                  Apache License, Version 2.0  <https://github.com/cloudera/thrift_sasl>
-tomlkit                      MIT  <https://pypi.org/project/tomlkit/>
+tomlkit                      MIT  <https://github.com/python-poetry/tomlkit>
 trino                        Apache 2.0  <https://github.com/trinodb/trino-python-client>
-typing-extensions            PSF-2.0  <https://pypi.org/project/typing-extensions/>
+typing-extensions            PSF-2.0  <https://github.com/python/typing_extensions>
 typing-inspect               MIT  <https://github.com/ilevkivskyi/typing_inspect>
 tzdata                       Apache-2.0  <https://github.com/python/tzdata>
-tzlocal                      MIT  <https://pypi.org/project/tzlocal/>
+tzlocal                      MIT  <https://github.com/regebro/tzlocal/blob/master/CHANGES.txt>
 uritemplate                  BSD 3-Clause OR Apache-2.0  <https://uritemplate.readthedocs.org>
-urllib3                      MIT  <https://pypi.org/project/urllib3/>
-werkzeug                     BSD-3-Clause  <https://pypi.org/project/Werkzeug/>
-zeep                         MIT  <https://pypi.org/project/zeep/>
-zstandard                    BSD-3-Clause  <https://pypi.org/project/zstandard/>
+urllib3                      MIT  <https://github.com/urllib3/urllib3>
+werkzeug                     BSD-3-Clause  <https://github.com/pallets/werkzeug/>
+zeep                         MIT  <https://github.com/mvantellingen/python-zeep>
+zstandard                    BSD-3-Clause  <https://github.com/indygreg/python-zstandard>
