@@ -9,7 +9,9 @@ backend.
 - **Python 3.12** / Flask / Gunicorn
 - **Deployment:** Docker -> Kubernetes (Helm charts in `helm/`)
 - **CI:** CircleCI (`.circleci/config.yml`)
-- **Dependencies:** managed with pip-compile — edit `requirements.in`, run `pip-compile`
+- **Dependencies:** managed with pip-compile — edit `requirements.in`, run `pip-compile`,
+  then regenerate the attribution file with `python scripts/generate_notice.py` and
+  commit the updated `NOTICE`
 
 ## Development
 
