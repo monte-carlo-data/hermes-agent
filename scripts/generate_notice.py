@@ -310,7 +310,9 @@ def build_notice() -> str:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    # __doc__ is Optional, and is stripped entirely under python -OO.
+    summary = (__doc__ or "Regenerate the NOTICE file.").splitlines()[0]
+    parser = argparse.ArgumentParser(description=summary)
     parser.add_argument(
         "--check",
         action="store_true",
