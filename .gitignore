@@ -219,3 +219,15 @@ errored.tfstate
 # Local agent secrets (real credentials)
 environments/local/secrets/agent-token.json
 environments/local/secrets/postgres.json
+
+# Keys and certificates. The firewall environments work with TLS CA bundles, so
+# keep private key and certificate material out of the repository by default.
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+id_rsa*
+.pgpass
