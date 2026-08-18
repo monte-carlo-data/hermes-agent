@@ -74,6 +74,11 @@ jobs:
             . .venv/bin/activate
             black --check .
             pyright
+      - run:
+          name: 'Check NOTICE is up to date'
+          command: |
+            . .venv/bin/activate
+            python scripts/generate_notice.py --check
 
   run-test-docker:
     machine:
