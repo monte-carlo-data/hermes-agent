@@ -8,7 +8,7 @@ This section explains how to run the agent locally inside a [kind](https://kind.
 
 ### Prerequisites
 
-Follow this [document](REDACTED_INTERNAL_DOC_URL to create an agent and integration key on MCD.
+Follow *Step 1 — Register the Agent* in the [Kubernetes agent documentation](https://docs.getmontecarlo.com/docs/kubernetes) to create an agent in Monte Carlo and obtain its credentials. The Key ID and Key Secret it gives you are the `mcd_id` and `mcd_token` used below.
 
 
 | Tool | Install |
