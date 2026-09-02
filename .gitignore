@@ -216,9 +216,9 @@ errored.tfstate
 # Working files (code review artifacts, plans, etc.)
 .work/
 
-# Local agent secrets (real credentials)
-environments/local/secrets/agent-token.json
-environments/local/secrets/postgres.json
+# Local agent secrets — real credentials. Deny by default; templates stay tracked.
+environments/local/secrets/*.json
+!environments/local/secrets/*-template.json
 
 # Keys and certificates. The firewall environments work with TLS CA bundles, so
 # keep private key and certificate material out of the repository by default.

@@ -31,10 +31,10 @@ Create `postgres.json` from the template if it doesn't exist:
 cp environments/local/secrets/postgres-template.json environments/local/secrets/postgres.json
 ```
 
-Replace the empty integrations secret with the Postgres connection details:
+Create the integrations secret with the Postgres connection details:
 
 ```bash
-kubectl delete secret mcd-integrations-secrets -n mcd-agent
+kubectl delete secret mcd-integrations-secrets -n mcd-agent --ignore-not-found
 kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
   --from-file=postgres.json=environments/local/secrets/postgres.json
 kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent

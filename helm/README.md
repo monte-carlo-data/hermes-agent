@@ -138,7 +138,7 @@ The chart is configured via values files. See the example files for each platfor
 
 By default the chart renders the namespace named by `namespace`, so the release owns it and `helm uninstall` removes it.
 
-Helm cannot adopt a namespace it did not create. Installing with the default against a namespace made by `kubectl create namespace` fails:
+Helm cannot adopt a namespace created outside Helm. Installing with the default against a namespace made by `kubectl create namespace` fails:
 
 ```
 Error: INSTALLATION FAILED: unable to continue with install: Namespace "mcd-agent" in
@@ -161,7 +161,7 @@ The namespace must exist before installing: it holds both the release record and
 
 These are independent. Every chart resource carries an explicit `metadata.namespace` taken from `namespace`, while the release record (`sh.helm.release.v1.<name>.vN`) lives in whatever `-n` points at — `default` when omitted. Installing without `-n` therefore puts the release in `default` and the workloads in `mcd-agent`, where `helm list -n mcd-agent` shows nothing. Pass `-n <namespace>` to keep them together.
 
-`-n` alone cannot bootstrap a namespace the chart is about to create — Helm needs the release namespace to exist before writing the release record — so pair it with `--create-namespace` (Helm creates it, then the chart adopts it) or with `namespaceCreate: false`.
+`-n` alone cannot bootstrap a namespace the chart is about to create — Helm needs the release namespace to exist before writing the release record — so pair it with `--create-namespace` (Helm stamps its own ownership metadata on a namespace it creates, so the chart's `Namespace` object adopts it cleanly — unlike one made by `kubectl create namespace`) or with `namespaceCreate: false`.
 
 ### Pod Security
 
@@ -285,12 +285,12 @@ key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires
 and uses them for all backend communication. The chart uses one authentication method at a time
 — when OAuth is enabled, only the OAuth secret is mounted.
 
-Setting any `oauthSecret` value selects OAuth — the block's presence is the opt-in. `oauthSecret.enabled` is only needed to *override* that: set it to `false` to keep key/token auth while leaving the rest of the block in place. Configuring both `oauthSecret` and `tokenSecret.remoteRef` fails at template time rather than silently picking one.
+OAuth is selected when `oauthSecret.remoteRef` or `oauthSecret.enabled` is set — `remoteRef` for ExternalSecret deployments, `enabled: true` when you create `mcd-oauth-secret` yourself. Setting `remoteRef` together with `enabled: false` is contradictory and fails at template time rather than silently picking one, as does configuring `oauthSecret` alongside `tokenSecret.remoteRef`.
 
 | Property | Description | Default |
 |---|---|---|
-| `oauthSecret.remoteRef` | ExternalSecret remote reference (cloud deployments) | _(unset)_ |
-| `oauthSecret.enabled` | Explicit override; `false` keeps key/token auth | _(unset — presence of the block selects OAuth)_ |
+| `oauthSecret.remoteRef` | ExternalSecret remote reference; selects OAuth (cloud deployments) | _(unset)_ |
+| `oauthSecret.enabled` | Selects OAuth when the Secret is created manually (`skipExternalSecrets: true`) | _(unset)_ |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
 
 The release prints the secret name, key, and payload shape it expects on install — `helm get notes <release>` retrieves it later. If that isn't the secret you created, the release selected the other authentication method.

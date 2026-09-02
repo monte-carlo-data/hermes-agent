@@ -41,7 +41,7 @@ See [minio/README.md](minio/README.md) for more details and a Docker Compose alt
 kubectl create namespace mcd-agent
 ```
 
-Because the namespace already exists, deploy with `namespaceCreate: false` in step 4 — Helm cannot adopt a namespace it did not create. The alternative is to skip this step entirely and let the chart create the namespace (`--create-namespace`, chart default), then create the secret afterwards.
+Because the namespace already exists, deploy with `namespaceCreate: false` in step 4 — Helm cannot adopt a namespace it did not create. Alternatively, skip this step and let the chart create and own the namespace — deploy with `-n mcd-agent --create-namespace` and leave `namespaceCreate` at its default `true`, instead of the command shown in step 4.
 
 ## 3. Create the Agent Token Secret
 
