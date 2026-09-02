@@ -110,7 +110,7 @@ kind load docker-image hermes-agent:local --name hermes-local
 
 ### Step 5 — Deploy with Helm
 
-This creates the namespace, service account, deployment, and service. The pod will initially fail because the secrets don't exist yet — that's expected.
+This creates the namespace, service account, deployment, and service. The pod will stay in `ContainerCreating` (with a `FailedMount` event) until the secrets exist — that's expected. Once the secrets are created in the next step, the pod starts on its own; no restart needed.
 
 ```bash
 # if you need to delete the namespace
@@ -124,7 +124,7 @@ helm upgrade --install hermes-agent ./helm \
 
 ### Step 6 — Create Kubernetes Secrets
 
-The Helm chart expects two Kubernetes Secrets that are normally provisioned by the External Secrets Operator in cloud environments. For local development, create them manually in the namespace that Helm just created.
+The Helm chart requires one Kubernetes Secret — the agent auth secret, either `mcd-agent-token-secret` (key/token) or `mcd-oauth-secret` (OAuth), depending on the authentication method you choose — normally provisioned by the External Secrets Operator in cloud environments. For local development, create it manually in the namespace that Helm just created. The integrations secret (`mcd-integrations-secrets`) is optional and only needed when testing a self-hosted integration, such as PostgreSQL below.
 
 #### 6a — Create the agent token secret
 
@@ -163,9 +163,9 @@ rm /tmp/oauth-creds.json
 
 Then add `--set oauthSecret.enabled=true` to your `helm upgrade` command. When OAuth is configured, the chart mounts only the OAuth secret (token secret is not used). See the [Helm chart README](helm/README.md#oauth-authentication) for details.
 
-#### 6b — Create the integrations secret
+#### 6b — Create the integrations secret (optional)
 
-For testing PostgreSQL connectivity, create a secret with the connection details. The key name (e.g. `pg_local.json`) must match the `file_path` configured in the Monte Carlo connection settings.
+This step is only needed when testing an integration. For testing PostgreSQL connectivity, create a secret with the connection details. The key name (e.g. `pg_local.json`) must match the `file_path` configured in the Monte Carlo connection settings.
 
 ```bash
 kubectl create secret generic mcd-integrations-secrets \
@@ -176,7 +176,9 @@ kubectl create secret generic mcd-integrations-secrets \
 > **Note:** The JSON must use `connect_args` with psycopg2-compatible keys (`host`, `port`, `database`, `user`, `password`). The Monte Carlo connection must be configured with `selfHostedCredentialsType: FILE` and `filePath: /etc/secrets/integrations/pg_local.json`.
 
 
-#### 6c — Restart the deployment to pick up the new secrets
+#### 6c — Restart the deployment to pick up the new secrets (optional)
+
+This step is only needed when testing an integration, to pick up the integrations secret created in 6b.
 
 ```bash
 kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
