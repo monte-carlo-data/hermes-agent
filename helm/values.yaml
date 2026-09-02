@@ -92,22 +92,26 @@ inProcessLogs:
 
 # OAuth client_credentials authentication. When enabled, the agent
 # authenticates to the Monte Carlo backend via Bearer tokens instead of
-# the key/token secret. OAuth is selected when `oauthSecret.remoteRef` or
-# `oauthSecret.enabled` is set; setting `remoteRef` together with
-# `enabled: false` is rejected at template time.
+# the key/token secret.
 #
-# remoteRef: ExternalSecret remote reference for cloud deployments (follows
-#   the same pattern as tokenSecret.remoteRef). The ExternalSecret creates
-#   a K8s Secret named `mcd-oauth-secret` with a `credentials.json` key
-#   containing JSON: {"client_id": "...", "client_secret": "..."}
-# enabled: set to true for local/manual deployments (skipExternalSecrets: true)
-#   where the K8s Secret `mcd-oauth-secret` is created manually.
+# enabled: selects OAuth. This is the key that chooses the authentication
+#   method; the keys below only describe where the credentials come from.
+# remoteRef: ExternalSecret remote reference (follows the same pattern as
+#   tokenSecret.remoteRef). The ExternalSecret creates a K8s Secret named
+#   `mcd-oauth-secret` with a `credentials.json` key containing JSON:
+#   {"client_id": "...", "client_secret": "..."}. Omit it when the Secret is
+#   created manually (skipExternalSecrets: true).
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.
 #
+# A remoteRef on its own also selects OAuth, for compatibility with the
+# Terraform modules and older values files. Setting `remoteRef` together with
+# `enabled: false` is contradictory and is rejected at template time.
+#
 # ExternalSecret path (cloud secret manager):
 # oauthSecret:
+#   enabled: true
 #   remoteRef:
 #     key: <secret-name>
 #

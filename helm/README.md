@@ -285,13 +285,27 @@ key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires
 and uses them for all backend communication. The chart uses one authentication method at a time
 — when OAuth is enabled, only the OAuth secret is mounted.
 
-OAuth is selected when `oauthSecret.remoteRef` or `oauthSecret.enabled` is set — `remoteRef` for ExternalSecret deployments, `enabled: true` when you create `mcd-oauth-secret` yourself. Setting `remoteRef` together with `enabled: false` is contradictory and fails at template time rather than silently picking one, as does configuring `oauthSecret` alongside `tokenSecret.remoteRef`.
+Set `oauthSecret.enabled: true` to use OAuth. `enabled` selects the authentication method; `remoteRef` says where the credentials come from — set it for ExternalSecret deployments, omit it when you create `mcd-oauth-secret` yourself. Keeping the two separate means adding a new credential source later doesn't change how the method is chosen.
+
+```yaml
+# ExternalSecret deployments
+oauthSecret:
+  enabled: true
+  remoteRef:
+    key: <your-oauth-secret-name>
+
+# Manually created Secret (skipExternalSecrets: true)
+oauthSecret:
+  enabled: true
+```
 
 | Property | Description | Default |
 |---|---|---|
-| `oauthSecret.remoteRef` | ExternalSecret remote reference; selects OAuth (cloud deployments) | _(unset)_ |
-| `oauthSecret.enabled` | Selects OAuth when the Secret is created manually (`skipExternalSecrets: true`) | _(unset)_ |
+| `oauthSecret.enabled` | Selects OAuth authentication | _(unset)_ |
+| `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
+
+For backwards compatibility a `remoteRef` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. Two combinations fail at template time rather than silently picking a method: `remoteRef` together with `enabled: false` (contradictory), and `oauthSecret` alongside `tokenSecret.remoteRef` (two methods).
 
 The release prints the secret name, key, and payload shape it expects on install — `helm get notes <release>` retrieves it later. If that isn't the secret you created, the release selected the other authentication method.
 

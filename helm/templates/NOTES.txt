@@ -31,9 +31,10 @@ authentication method. To switch:
 {{- end }}
 {{- else }}
 {{- if $oauth }}
-  replace oauthSecret.remoteRef with tokenSecret.remoteRef to use key/token
+  remove the oauthSecret block and set tokenSecret.remoteRef to use key/token
 {{- else }}
-  replace tokenSecret.remoteRef with oauthSecret.remoteRef to use OAuth
+  set `oauthSecret.enabled: true` and point oauthSecret.remoteRef at the OAuth
+  secret, then remove tokenSecret.remoteRef, to use OAuth
 {{- end }}
 {{- end }}
 
