@@ -1,4 +1,3 @@
-import json
 import logging
 import threading
 import time
@@ -11,10 +10,19 @@ from retry import retry
 
 from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
 
+from hermes.agent.service.credentials_source import (
+    ATTR_NAME_FILE_PATH,
+    CredentialsSource,
+    CredentialsSourceError,
+)
+
 logger = logging.getLogger(__name__)
 
 AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS = "oauth_client_credentials"
-ATTR_NAME_CREDENTIALS_FILE_PATH = "credentials_file_path"
+# Re-exported for backwards compatibility: this attribute name appears in
+# reachability output that support tooling reads, and it is now owned by the
+# file credentials source.
+ATTR_NAME_CREDENTIALS_FILE_PATH = ATTR_NAME_FILE_PATH
 ATTR_NAME_TOKEN_ENDPOINT = "token_endpoint"
 _NO_CLIENT_ID = "no-client-id"
 
@@ -44,11 +52,11 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
 
     def __init__(
         self,
-        file_path: str,
+        credentials_source: CredentialsSource,
         backend_service_url: str,
         token_endpoint: Optional[str] = None,
     ):
-        self._file_path = file_path
+        self._credentials_source = credentials_source
 
         if token_endpoint:
             self._token_endpoint = token_endpoint
@@ -101,16 +109,13 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
     def get_credential_id(self) -> Optional[str]:
         """Return the OAuth client id, for reporting only.
 
-        Reads the credentials file directly: the id has to be reportable when
-        the token request is what's failing, so this never hits the network and
-        never raises.
+        Reads the credential from its source rather than deriving it from a
+        token: the id has to be reportable when the token request is what's
+        failing, so this never hits the token endpoint and never raises.
 
-        Catches everything rather than only ``OAuthTokenError``: reading the
-        file can fail in ways ``_read_credentials`` doesn't convert — a bind
-        mount whose host file is missing leaves a *directory* at the container
-        path (``IsADirectoryError``), and a non-UTF8 file raises while decoding.
-        Those are misconfigured mounts, exactly what this reports on, so they
-        must produce ``no-client-id`` and not a silent empty payload.
+        Catches everything rather than only the errors the source converts —
+        an unreadable credential is exactly what this reports on, so any
+        failure must produce ``no-client-id`` and not a silent empty payload.
         """
         try:
             client_id, _ = self._read_credentials()
@@ -120,11 +125,11 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
             return _NO_CLIENT_ID
 
     def get_credential_info(self) -> Dict[str, Any]:
-        # The file path and the token endpoint are included so a misconfigured
-        # secret mount or a wrong endpoint is self-evident from the output.
+        # Where the credential came from and the token endpoint are included so
+        # a misconfigured source or a wrong endpoint is self-evident.
         return {
             **super().get_credential_info(),
-            ATTR_NAME_CREDENTIALS_FILE_PATH: self._file_path,
+            **self._credentials_source.describe(),
             ATTR_NAME_TOKEN_ENDPOINT: self._token_endpoint,
         }
 
@@ -142,35 +147,18 @@ class OAuthLoginTokenProvider(LoginTokenProvider):
         return elapsed >= threshold
 
     def _read_credentials(self) -> Tuple[str, str]:
-        """Read OAuth client credentials from the JSON file."""
+        """Read OAuth client credentials from the configured source."""
         try:
-            with open(self._file_path) as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            raise OAuthTokenError(
-                f"OAuth credentials file not found: {self._file_path}"
-            )
-        except PermissionError:
-            raise OAuthTokenError(
-                f"Cannot read OAuth credentials file (permission denied): "
-                f"{self._file_path}"
-            )
-        except json.JSONDecodeError:
-            raise OAuthTokenError(
-                f"OAuth credentials file is not valid JSON: {self._file_path}"
-            )
-
-        if not isinstance(data, dict):
-            raise OAuthTokenError(
-                f"OAuth credentials file must contain a JSON object: {self._file_path}"
-            )
+            data = self._credentials_source.read()
+        except CredentialsSourceError as ex:
+            raise OAuthTokenError(f"Failed to read OAuth credentials: {ex}")
 
         client_id = data.get("client_id")
         client_secret = data.get("client_secret")
         if not client_id or not client_secret:
             raise OAuthTokenError(
-                "OAuth credentials file must contain non-empty "
-                "'client_id' and 'client_secret' keys"
+                "OAuth credentials must contain non-empty 'client_id' and "
+                "'client_secret' keys"
             )
         return client_id, client_secret
 
