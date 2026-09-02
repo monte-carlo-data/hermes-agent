@@ -394,6 +394,8 @@ services:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
 
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_OAUTH_AWS_SECRET_ID` (or `MCD_TOKEN_AWS_SECRET_ID`, plus an optional `MCD_AWS_SECRETS_MANAGER_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
+
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private
 Cognito deployments where the default derivation doesn't apply.
