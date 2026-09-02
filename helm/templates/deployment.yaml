@@ -82,9 +82,22 @@ spec:
               value: {{ .Values.container.opsRunnerThreadCount | default "18" | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
-            {{- if not (include "hermes.oauth.enabled" .) }}
+            {{- if and (not (include "hermes.oauth.enabled" .)) (ne (include "hermes.auth.source" .) "awsSecretsManager") }}
             - name: MCD_TOKEN_FILE_PATH
-              value: /etc/secrets/mcd-agent-token/contents.json
+              value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
+            {{- end }}
+            {{- if eq (include "hermes.auth.source" .) "awsSecretsManager" }}
+            {{- if include "hermes.oauth.enabled" . }}
+            - name: MCD_OAUTH_AWS_SECRET_ID
+              value: {{ .Values.oauthSecret.awsSecretsManager.secretId | quote }}
+            {{- else }}
+            - name: MCD_TOKEN_AWS_SECRET_ID
+              value: {{ .Values.tokenSecret.awsSecretsManager.secretId | quote }}
+            {{- end }}
+            {{- with (include "hermes.auth.awsRegion" .) }}
+            - name: MCD_AWS_SECRETS_MANAGER_REGION
+              value: {{ . | quote }}
+            {{- end }}
             {{- end }}
             - name: MCD_IN_PROCESS_LOGS_ENABLED
               value: {{ eq .Values.logShipping "in-process" | quote }}
@@ -93,8 +106,10 @@ spec:
               value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
             {{- end }}
             {{- if include "hermes.oauth.enabled" . }}
+            {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
             - name: MCD_OAUTH_FILE_PATH
-              value: /etc/secrets/mcd-oauth/credentials.json
+              value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
+            {{- end }}
             {{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint }}
             - name: MCD_OAUTH_TOKEN_ENDPOINT
               value: {{ .Values.oauthSecret.tokenEndpoint | quote }}
@@ -124,14 +139,17 @@ spec:
             {{- .Values.container.extraEnv | toYaml | nindent 12 }}
             {{- end }}
           volumeMounts:
+            {{- /* No Secret exists to mount for the awsSecretsManager source. */ -}}
+            {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
             {{- if not (include "hermes.oauth.enabled" .) }}
-            - name: mcd-agent-token-secret
-              mountPath: /etc/secrets/mcd-agent-token
+            - name: {{ include "hermes.auth.secretName" . }}
+              mountPath: {{ include "hermes.auth.mountPath" . }}
               readOnly: true
             {{- else }}
-            - name: mcd-oauth-secret
-              mountPath: /etc/secrets/mcd-oauth
+            - name: {{ include "hermes.auth.secretName" . }}
+              mountPath: {{ include "hermes.auth.mountPath" . }}
               readOnly: true
+            {{- end }}
             {{- end }}
             - name: mcd-integrations-secrets
               mountPath: /etc/secrets/integrations
@@ -143,14 +161,16 @@ spec:
             {{- .Values.extraVolumeMounts | toYaml | nindent 12 }}
             {{- end }}
       volumes:
+        {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
         {{- if not (include "hermes.oauth.enabled" .) }}
-        - name: mcd-agent-token-secret
+        - name: {{ include "hermes.auth.secretName" . }}
           secret:
-            secretName: mcd-agent-token-secret
+            secretName: {{ include "hermes.auth.secretName" . }}
         {{- else }}
-        - name: mcd-oauth-secret
+        - name: {{ include "hermes.auth.secretName" . }}
           secret:
-            secretName: mcd-oauth-secret
+            secretName: {{ include "hermes.auth.secretName" . }}
+        {{- end }}
         {{- end }}
         - name: mcd-integrations-secrets
           secret:

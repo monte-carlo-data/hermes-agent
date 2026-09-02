@@ -2,45 +2,61 @@
   Deliberately free of `lookup`: reading cluster state would make this render
   differently under `helm template`, `--dry-run`, and the Terraform helm
   provider's plan phase, and would require `get secrets` on the caller. Naming
-  the secret the release expects is enough. See `hermes.oauth.enabled` in
-  _helpers.tpl for how the method is selected.
+  what the release expects is enough. See `hermes.oauth.enabled` and
+  `hermes.auth.source` in _helpers.tpl for how the method and source are
+  selected.
 */}}
 {{- $ns := .Values.namespace | default "mcd-agent" -}}
-{{- $oauth := eq (include "hermes.oauth.enabled" .) "true" -}}
-{{- $secretName := "mcd-agent-token-secret" -}}
-{{- $secretKey := "contents.json" -}}
-{{- if $oauth -}}
-{{- $secretName = "mcd-oauth-secret" -}}
-{{- $secretKey = "credentials.json" -}}
-{{- end -}}
+{{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
+{{- $source := include "hermes.auth.source" . -}}
+{{- $secretName := include "hermes.auth.secretName" . -}}
+{{- $secretKey := include "hermes.auth.secretKey" . -}}
+{{- $payload := ternary "{\"client_id\": \"...\", \"client_secret\": \"...\"}" "{\"mcd_id\": \"...\", \"mcd_token\": \"...\"}" $oauth -}}
 Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
 
 This release authenticates with {{ if $oauth }}OAuth client credentials{{ else }}a key/token pair{{ end }} and reads them from:
+{{ if eq $source "awsSecretsManager" }}
+  AWS Secrets Manager: {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
+  Payload:             {{ $payload }}
 
+The agent reads this secret itself — no Kubernetes Secret is created. Its
+service account must be able to call secretsmanager:GetSecretValue on that
+secret; without it the agent starts and then fails to authenticate. See
+"Reading Credentials Directly from AWS Secrets Manager" in the chart README
+for the EKS Pod Identity and IRSA setup.
+{{- else }}
   Secret:  {{ $secretName }} (key: {{ $secretKey }})
-  Payload: {{ if $oauth }}{"client_id": "...", "client_secret": "..."}{{ else }}{"mcd_id": "...", "mcd_token": "..."}{{ end }}
-  Source:  {{ if .Values.skipExternalSecrets }}created manually with kubectl{{ else }}synced by the External Secrets Operator{{ end }}
+  Payload: {{ $payload }}
+  Source:  {{ if eq $source "externalSecret" }}synced by the External Secrets Operator{{ else }}created manually with kubectl{{ end }}
 
-If that is not the secret you created, the release selected the other
+The agent pod stays in ContainerCreating until that Secret exists. It does not
+have to exist before install — the kubelet retries the mount and the pod starts
+on its own once the Secret appears.
+{{- end }}
+
+If that is not the credential you configured, the release selected the other
 authentication method. To switch:
-{{ if .Values.skipExternalSecrets }}
-{{- if $oauth }}
-  remove the oauthSecret block from your values file to use key/token
+{{ if $oauth }}
+{{- if eq $source "k8sSecret" }}
+  remove the `oauthSecret` block to use key/token authentication.
+  `skipExternalSecrets` is already true, so create `mcd-agent-token-secret`
+  yourself
 {{- else }}
-  set `oauthSecret.enabled: true` in your values file to use OAuth
+  remove the `oauthSecret` block and set
+  `tokenSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
+  to use key/token authentication
 {{- end }}
 {{- else }}
-{{- if $oauth }}
-  remove the oauthSecret block and set tokenSecret.remoteRef to use key/token
+{{- if eq $source "k8sSecret" }}
+  set `oauthSecret.enabled: true` to use OAuth. `skipExternalSecrets` is
+  already true, so create `mcd-oauth-secret` yourself
 {{- else }}
-  set `oauthSecret.enabled: true` and point oauthSecret.remoteRef at the OAuth
-  secret, then remove tokenSecret.remoteRef, to use OAuth
+  set `oauthSecret.enabled: true` and
+  `oauthSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
+  to use OAuth
 {{- end }}
+{{- if .Values.tokenSecret }}, then remove `tokenSecret`{{ end }}
 {{- end }}
-
-The agent pod stays in ContainerCreating until the secret above exists. It does
-not have to exist before install — the kubelet retries the mount and the pod
-starts on its own once the secret appears.
 
 Verify connectivity to Monte Carlo:
 
@@ -48,5 +64,5 @@ Verify connectivity to Monte Carlo:
     curl -s -X POST localhost:8080/api/v1/test/reachability
 
 A successful response contains "ok": true. On failure the response reports the
-credential the agent is configured with, which tells you whether the intended
-secret was picked up.
+credential the agent is configured with and the source it was read from, which
+tells you whether the intended credential was picked up.

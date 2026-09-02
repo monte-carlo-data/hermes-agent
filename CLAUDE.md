@@ -56,7 +56,7 @@ docker build --target hermes-generic -t hermes-agent:local \
 | Path | Purpose |
 |---|---|
 | `hermes/agent/main.py` | Flask app entry point |
-| `hermes/agent/service/` | Core service logic (OnPremService, MetricsService, OAuthLoginTokenProvider) |
+| `hermes/agent/service/` | Core service logic (OnPremService, MetricsService), credential sourcing (`credentials_source.py`), and login-token-provider selection (`login_token_provider_factory.py`, `OAuthLoginTokenProvider`, `TokenLoginTokenProvider`) — provider selection lives in the factory, not `OnPremService.__init__` |
 | `gunicorn.conf.py` | Gunicorn config (signal handler registration) |
 | `tests/` | Unit tests (pytest) |
 | `helm/` | Kubernetes Helm charts |

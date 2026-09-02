@@ -322,6 +322,6 @@ kubectl get all -n mcd-agent
 
 - **Apple Silicon (M1/M2/M3/M4):** The local values file sets `nodeSelector` to `arm64`. If you are on an Intel Mac, change it to `amd64` in `environments/local/values.yaml`.
 - **Backend URL:** By default the local values point to the dev orchestrator (`artemis.dev.getmontecarlo.com`). Update `container.backendServiceUrl` if you need to target a different environment.
-- **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`externalSecrets: false`), so you must create Kubernetes Secrets manually as shown above.
+- **ExternalSecrets:** Cloud deployments use the External Secrets Operator. The local values disable it (`skipExternalSecrets: true`), so you must create Kubernetes Secrets manually as shown above.
 - **PostgreSQL from inside kind:** The Docker-for-Mac DNS name `host.docker.internal` resolves to the host machine, allowing pods to reach the PostgreSQL container running on the host's port 5432.
 - **Log Collection:** Default `logShipping: in-process` — the agent ships its own logs to the orchestrator. Set `logShipping: fluentd` to deploy the fluentd DaemonSet instead (requires root pods), or `logShipping: none` to disable MC log shipping entirely. All modes authenticate to the orchestrator using whichever method is configured — OAuth (`oauthSecret`) or `x-mcd-id`/`x-mcd-token` headers from the `mcd-agent-token-secret`.
