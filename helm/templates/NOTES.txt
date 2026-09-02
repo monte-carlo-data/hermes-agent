@@ -5,64 +5,35 @@
   what the release expects is enough. See `hermes.oauth.enabled` and
   `hermes.auth.source` in _helpers.tpl for how the method and source are
   selected.
+
+  Kept short on purpose: install output competes for attention with whatever
+  the operator was actually doing. What the release authenticates with, the one
+  prerequisite the chart cannot satisfy itself, and how to check it. Anything
+  conditional on the operator having misconfigured something belongs in the
+  README, where it can be read without being in the way.
 */}}
 {{- $ns := .Values.namespace | default "mcd-agent" -}}
 {{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
 {{- $source := include "hermes.auth.source" . -}}
-{{- $secretName := include "hermes.auth.secretName" . -}}
-{{- $secretKey := include "hermes.auth.secretKey" . -}}
-{{- $payload := ternary "{\"client_id\": \"...\", \"client_secret\": \"...\"}" "{\"mcd_id\": \"...\", \"mcd_token\": \"...\"}" $oauth -}}
+{{- $method := ternary "OAuth client credentials" "an MCD key/token pair" $oauth -}}
 Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
-
-This release authenticates with {{ if $oauth }}OAuth client credentials{{ else }}a key/token pair{{ end }} and reads them from:
 {{ if eq $source "awsSecretsManager" }}
-  AWS Secrets Manager: {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
-  Payload:             {{ $payload }}
+Authenticating with {{ $method }}, read from AWS Secrets Manager:
+  {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
 
-The agent reads this secret itself — no Kubernetes Secret is created. Its
-service account must be able to call secretsmanager:GetSecretValue on that
-secret; without it the agent starts and then fails to authenticate. See
-"Reading Credentials Directly from AWS Secrets Manager" in the chart README
-for the EKS Pod Identity and IRSA setup.
+The agent's service account needs secretsmanager:GetSecretValue on that
+secret — see "Reading Credentials Directly from AWS Secrets Manager" in the
+chart README.
 {{- else }}
-  Secret:  {{ $secretName }} (key: {{ $secretKey }})
-  Payload: {{ $payload }}
-  Source:  {{ if eq $source "externalSecret" }}synced by the External Secrets Operator{{ else }}created manually with kubectl{{ end }}
+Authenticating with {{ $method }}, read from the Secret
+  {{ include "hermes.auth.secretName" . }} (key: {{ include "hermes.auth.secretKey" . }}),
+  {{ if eq $source "externalSecret" }}synced by the External Secrets Operator{{ else }}which you create yourself with kubectl{{ end }}.
 
-The agent pod stays in ContainerCreating until that Secret exists. It does not
-have to exist before install — the kubelet retries the mount and the pod starts
-on its own once the Secret appears.
+The pod stays in ContainerCreating until that Secret exists — the kubelet
+retries the mount, so it starts on its own once the Secret appears.
 {{- end }}
 
-If that is not the credential you configured, the release selected the other
-authentication method. To switch:
-{{ if $oauth }}
-{{- if eq $source "k8sSecret" }}
-  remove the `oauthSecret` block to use key/token authentication.
-  `skipExternalSecrets` is already true, so create `mcd-agent-token-secret`
-  yourself
-{{- else }}
-  remove the `oauthSecret` block and set
-  `tokenSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
-  to use key/token authentication
-{{- end }}
-{{- else }}
-{{- if eq $source "k8sSecret" }}
-  set `oauthSecret.enabled: true` to use OAuth. `skipExternalSecrets` is
-  already true, so create `mcd-oauth-secret` yourself
-{{- else }}
-  set `oauthSecret.enabled: true` and
-  `oauthSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
-  to use OAuth
-{{- end }}
-{{- if .Values.tokenSecret }}, then remove `tokenSecret`{{ end }}
-{{- end }}
-
-Verify connectivity to Monte Carlo:
+Verify:
 
   kubectl exec -n {{ $ns }} deploy/mcd-agent-deployment -- \
     curl -s -X POST localhost:8080/api/v1/test/reachability
-
-A successful response contains "ok": true. On failure the response reports the
-credential the agent is configured with and the source it was read from, which
-tells you whether the intended credential was picked up.
