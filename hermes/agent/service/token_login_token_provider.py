@@ -3,9 +3,9 @@
 agent-common's ``FileLoginTokenProvider`` covers the case where the credential
 is a file, which is what a Kubernetes Secret mount or a Docker bind mount
 produces. This provider covers the sources that are not files — today AWS
-Secrets Manager, read by the agent itself over IRSA — so an operator who cannot
-run the External Secrets Operator does not have to materialize the credential
-as a Kubernetes Secret at all.
+Secrets Manager, read by the agent itself using the pod's own AWS identity — so
+an operator who cannot run the External Secrets Operator does not have to
+materialize the credential as a Kubernetes Secret at all.
 """
 
 import logging
@@ -72,9 +72,9 @@ class TokenLoginTokenProvider(LoginTokenProvider):
         Catches everything rather than only ``CredentialsSourceError``: this
         runs on the startup path and while authentication is already failing,
         and a source can fail in ways it does not convert — a boto client that
-        cannot resolve IRSA credentials raises its own exceptions. Those are
-        misconfigurations, exactly what the `no-token-id` sentinel exists to
-        report, so they must not propagate out of a reporting call.
+        cannot resolve the pod's AWS credentials raises its own exceptions.
+        Those are misconfigurations, exactly what the `no-token-id` sentinel
+        exists to report, so they must not propagate out of a reporting call.
         """
         try:
             credentials = self._credentials_source.read()

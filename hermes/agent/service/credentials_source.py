@@ -7,9 +7,11 @@ provider.
 
 The file source covers the Kubernetes Secret and Docker bind-mount cases. The
 AWS Secrets Manager source removes the Kubernetes Secret from the picture
-entirely: the agent reads the credential itself over IRSA, so deployments that
-cannot use the External Secrets Operator do not have to materialize the
-credential in the cluster at all.
+entirely: the agent reads the credential itself using the pod's own AWS
+identity, so a deployment that cannot use the External Secrets Operator does
+not have to materialize the credential in the cluster at all. That is the same
+mechanism the agent already uses to read self-hosted *integration* credentials
+from AWS Secrets Manager — this applies it to the agent's own credential.
 """
 
 import json
@@ -114,8 +116,10 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     """Reads the credential from AWS Secrets Manager, caching it briefly.
 
     The boto client is built lazily and then reused: constructing it resolves
-    IRSA credentials, which fails before the pod's projected token is available
-    and must not happen at import time.
+    the pod's AWS credentials, which is not possible before the credential
+    source the cluster provides is reachable, so it must not happen at import
+    time. EKS Pod Identity and IRSA both work — boto resolves either through the
+    standard credential chain, so nothing here depends on which is in use.
     """
 
     source_name = SOURCE_AWS_SECRETS_MANAGER

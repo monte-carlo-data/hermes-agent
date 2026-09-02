@@ -120,7 +120,8 @@ inProcessLogs:
 #   remoteRef:
 #     key: <secret-name>
 #
-# AWS Secrets Manager path (agent reads the secret directly over IRSA):
+# AWS Secrets Manager path (agent reads the secret directly using the AWS
+# identity bound to its service account, via EKS Pod Identity or IRSA):
 # oauthSecret:
 #   enabled: true
 #   awsSecretsManager:

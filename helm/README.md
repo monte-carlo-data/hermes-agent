@@ -298,15 +298,9 @@ oauthSecret:
 
 This is independent of `skipExternalSecrets`: set it when you also want ESO for integration credentials, leave it unset when you don't. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.
 
-**IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret. This is a different principal from the one the `secretStore` uses: with ESO the ExternalSecrets Operator reads the secret, so existing IAM trust policies grant it rather than the agent. Annotate the agent's service account with a role that allows the read:
+**IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret. That is a different principal from the one the `secretStore` uses — with ESO it is the External Secrets Operator that reads the secret, so an existing deployment grants the permission to ESO rather than to the agent.
 
-```yaml
-serviceAccount:
-  annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<agent-role>
-```
-
-The role's trust policy must let the cluster's OIDC provider assume it from `system:serviceaccount:<namespace>:mcd-agent-service-account`, and its permission policy needs:
+The permission policy is the same either way:
 
 ```json
 {
@@ -321,7 +315,32 @@ The role's trust policy must let the cluster's OIDC provider assume it from `sys
 }
 ```
 
-Without it the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id it tried to read.
+How that role reaches the agent's service account is up to your cluster. Both mechanisms work — the agent resolves credentials through the standard AWS chain and does not care which is in use:
+
+- **EKS Pod Identity** (what the Terraform modules use). Requires the `eks-pod-identity-agent` add-on, a role trusted by `pods.eks.amazonaws.com` for `sts:AssumeRole` and `sts:TagSession`, and an association. No service-account annotation is involved:
+
+  ```bash
+  aws eks create-pod-identity-association \
+    --cluster-name <cluster> \
+    --namespace mcd-agent \
+    --service-account mcd-agent-service-account \
+    --role-arn <role-arn>
+  ```
+
+- **IRSA**, for clusters already standardized on it. Requires a cluster OIDC provider and a role whose trust policy allows `sts:AssumeRoleWithWebIdentity` from `system:serviceaccount:<namespace>:mcd-agent-service-account`, then annotate the service account:
+
+  ```yaml
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<agent-role>
+  ```
+
+In two common cases the role already exists and only its policy needs widening:
+
+- **Deployed with a Terraform module.** The agent's service account already has a Pod Identity association to the `<cluster>-pod-identity` role, which carries the S3 policy for agent storage. Add Secrets Manager read to it — there is no new role or association to create.
+- **Already reading self-hosted integration credentials from AWS Secrets Manager.** The agent fetches those itself, through the same pod identity, so it already holds `secretsmanager:GetSecretValue`. Extend the resource scope to cover the agent's own secret.
+
+Without the permission the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id it tried to read.
 
 The agent caches the credential for 15 minutes, so a rotated secret is picked up within that window without a restart — more promptly than the ESO path's default hourly refresh. A read failure with a cached credential in hand logs a warning and keeps using it, since it stays valid until rotation.
 
