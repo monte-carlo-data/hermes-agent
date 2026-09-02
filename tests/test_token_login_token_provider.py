@@ -106,3 +106,29 @@ class TokenLoginTokenProviderTests(TestCase):
             {X_MCD_ID: "no-token-id", X_MCD_TOKEN: "no-token-secret"},
             provider.get_token(),
         )
+
+    def test_empty_string_credentials_yield_no_token_sentinels(self):
+        # A templated secret created before its variables are populated is a
+        # plausible secret-manager payload — both keys present, both empty.
+        # The old guard (`key in credentials`) let this through; get_token()
+        # and get_credential_id() must still report the sentinels.
+        provider = TokenLoginTokenProvider(
+            self._source({"mcd_id": "", "mcd_token": ""})
+        )
+        self.assertEqual(
+            {X_MCD_ID: "no-token-id", X_MCD_TOKEN: "no-token-secret"},
+            provider.get_token(),
+        )
+        self.assertEqual("no-token-id", provider.get_credential_id())
+
+    def test_null_credentials_yield_no_token_sentinels(self):
+        # An explicit `null` is worse than an empty string: unguarded, it
+        # would reach `requests` as a non-string header value.
+        provider = TokenLoginTokenProvider(
+            self._source({"mcd_id": None, "mcd_token": None})
+        )
+        self.assertEqual(
+            {X_MCD_ID: "no-token-id", X_MCD_TOKEN: "no-token-secret"},
+            provider.get_token(),
+        )
+        self.assertEqual("no-token-id", provider.get_credential_id())

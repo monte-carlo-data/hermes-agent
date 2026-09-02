@@ -84,7 +84,7 @@ spec:
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
             {{- if and (not (include "hermes.oauth.enabled" .)) (ne (include "hermes.auth.source" .) "awsSecretsManager") }}
             - name: MCD_TOKEN_FILE_PATH
-              value: /etc/secrets/mcd-agent-token/contents.json
+              value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
             {{- end }}
             {{- if eq (include "hermes.auth.source" .) "awsSecretsManager" }}
             {{- if include "hermes.oauth.enabled" . }}
@@ -108,7 +108,7 @@ spec:
             {{- if include "hermes.oauth.enabled" . }}
             {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
             - name: MCD_OAUTH_FILE_PATH
-              value: /etc/secrets/mcd-oauth/credentials.json
+              value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
             {{- end }}
             {{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint }}
             - name: MCD_OAUTH_TOKEN_ENDPOINT
@@ -139,16 +139,15 @@ spec:
             {{- .Values.container.extraEnv | toYaml | nindent 12 }}
             {{- end }}
           volumeMounts:
-            {{/* No mount for the awsSecretsManager source: the agent reads the
-                 credential itself, so no Kubernetes Secret exists to mount. */}}
+            {{- /* No Secret exists to mount for the awsSecretsManager source. */ -}}
             {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
             {{- if not (include "hermes.oauth.enabled" .) }}
-            - name: mcd-agent-token-secret
-              mountPath: /etc/secrets/mcd-agent-token
+            - name: {{ include "hermes.auth.secretName" . }}
+              mountPath: {{ include "hermes.auth.mountPath" . }}
               readOnly: true
             {{- else }}
-            - name: mcd-oauth-secret
-              mountPath: /etc/secrets/mcd-oauth
+            - name: {{ include "hermes.auth.secretName" . }}
+              mountPath: {{ include "hermes.auth.mountPath" . }}
               readOnly: true
             {{- end }}
             {{- end }}
@@ -164,13 +163,13 @@ spec:
       volumes:
         {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
         {{- if not (include "hermes.oauth.enabled" .) }}
-        - name: mcd-agent-token-secret
+        - name: {{ include "hermes.auth.secretName" . }}
           secret:
-            secretName: mcd-agent-token-secret
+            secretName: {{ include "hermes.auth.secretName" . }}
         {{- else }}
-        - name: mcd-oauth-secret
+        - name: {{ include "hermes.auth.secretName" . }}
           secret:
-            secretName: mcd-oauth-secret
+            secretName: {{ include "hermes.auth.secretName" . }}
         {{- end }}
         {{- end }}
         - name: mcd-integrations-secrets

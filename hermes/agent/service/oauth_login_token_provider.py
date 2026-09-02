@@ -11,7 +11,6 @@ from retry import retry
 from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
 
 from hermes.agent.service.credentials_source import (
-    ATTR_NAME_FILE_PATH,
     CredentialsSource,
     CredentialsSourceError,
 )
@@ -19,10 +18,6 @@ from hermes.agent.service.credentials_source import (
 logger = logging.getLogger(__name__)
 
 AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS = "oauth_client_credentials"
-# Re-exported for backwards compatibility: this attribute name appears in
-# reachability output that support tooling reads, and it is now owned by the
-# file credentials source.
-ATTR_NAME_CREDENTIALS_FILE_PATH = ATTR_NAME_FILE_PATH
 ATTR_NAME_TOKEN_ENDPOINT = "token_endpoint"
 _NO_CLIENT_ID = "no-client-id"
 

@@ -130,13 +130,29 @@ inProcessLogs:
 # Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
 # oauthSecret:
 #   enabled: true
+
+# Key/token authentication credential source. This is the default
+# authentication method — no top-level `enabled` key selects it; a credential
+# source alone does, mirroring oauthSecret without its `enabled` key. See
+# "Reading Credentials Directly from AWS Secrets Manager" in helm/README.md
+# for the awsSecretsManager IAM prerequisite.
 #
-# The same three shapes apply to tokenSecret for key/token authentication,
-# without the `enabled` key — a source alone selects it:
+# ExternalSecret path (cloud secret manager). The ExternalSecret creates a
+# K8s Secret named `mcd-agent-token-secret` with a `contents.json` key
+# containing JSON: {"mcd_id": "...", "mcd_token": "..."}.
+# tokenSecret:
+#   remoteRef:
+#     key: <secret-name>
+#
+# AWS Secrets Manager path (agent reads the secret directly):
 # tokenSecret:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
+#     region: <optional-region-override>
 #
+# Manual path: omit tokenSecret entirely and set skipExternalSecrets: true —
+# create mcd-agent-token-secret yourself.
+
 # Integration credentials synced from your cloud secret manager. Each entry
 # becomes a file at /etc/secrets/integrations/<secretKey>. The agent's
 # integrations volume is mounted optionally, so this is only needed when you

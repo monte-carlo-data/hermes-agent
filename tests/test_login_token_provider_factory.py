@@ -1,7 +1,10 @@
 from unittest import TestCase
 from unittest.mock import patch
 
-from apollo.egress.agent.service.file_login_token_provider import FileLoginTokenProvider
+from apollo.egress.agent.service.file_login_token_provider import (
+    ATTR_NAME_TOKEN_FILE_PATH,
+    FileLoginTokenProvider,
+)
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 
 from hermes.agent.service.credentials_source import (
@@ -51,6 +54,18 @@ class BuildLoginTokenProviderTests(TestCase):
         # Kept on agent-common's provider so the `token_file_path` attribute
         # support tooling reads does not change.
         self.assertIsInstance(provider, FileLoginTokenProvider)
+
+    def test_token_file_reports_token_file_path(self):
+        # This is the contract the FileLoginTokenProvider/TokenLoginTokenProvider
+        # asymmetry exists to protect: routing the key/token + file case through
+        # the shared source-precedence helper must not lose the
+        # `token_file_path` attribute support tooling reads out of reachability
+        # results.
+        provider = self._build(**{ENV_TOKEN_FILE_PATH: "/etc/secrets/contents.json"})
+        self.assertEqual(
+            "/etc/secrets/contents.json",
+            provider.get_credential_info()[ATTR_NAME_TOKEN_FILE_PATH],
+        )
 
     def test_token_aws_secret_uses_secrets_manager_source(self):
         provider = self._build(**{ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token"})
@@ -152,8 +167,9 @@ class BuildLoginTokenProviderTests(TestCase):
         )
 
     def test_building_an_aws_source_does_not_contact_aws(self):
-        # The factory runs at import of the service module, long before the
-        # pod's projected IRSA token is guaranteed to be readable.
+        # `main.py` constructs the service at module level, which is what
+        # makes this run at import time — long before the pod's projected
+        # IRSA token is guaranteed to be readable.
         with patch(
             "apollo.integrations.aws.asm_proxy_client.SecretsManagerProxyClient"
         ) as mock_client:

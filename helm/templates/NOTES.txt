@@ -9,8 +9,8 @@
 {{- $ns := .Values.namespace | default "mcd-agent" -}}
 {{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
 {{- $source := include "hermes.auth.source" . -}}
-{{- $secretName := ternary "mcd-oauth-secret" "mcd-agent-token-secret" $oauth -}}
-{{- $secretKey := ternary "credentials.json" "contents.json" $oauth -}}
+{{- $secretName := include "hermes.auth.secretName" . -}}
+{{- $secretKey := include "hermes.auth.secretKey" . -}}
 {{- $payload := ternary "{\"client_id\": \"...\", \"client_secret\": \"...\"}" "{\"mcd_id\": \"...\", \"mcd_token\": \"...\"}" $oauth -}}
 Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
 
@@ -21,7 +21,9 @@ This release authenticates with {{ if $oauth }}OAuth client credentials{{ else }
 
 The agent reads this secret itself — no Kubernetes Secret is created. Its
 service account must be able to call secretsmanager:GetSecretValue on that
-secret; without it the agent starts and then fails to authenticate.
+secret; without it the agent starts and then fails to authenticate. See
+"Reading Credentials Directly from AWS Secrets Manager" in the chart README
+for the EKS Pod Identity and IRSA setup.
 {{- else }}
   Secret:  {{ $secretName }} (key: {{ $secretKey }})
   Payload: {{ $payload }}
@@ -35,11 +37,25 @@ on its own once the Secret appears.
 If that is not the credential you configured, the release selected the other
 authentication method. To switch:
 {{ if $oauth }}
-  remove the `oauthSecret` block to use key/token authentication
+{{- if eq $source "k8sSecret" }}
+  remove the `oauthSecret` block to use key/token authentication.
+  `skipExternalSecrets` is already true, so create `mcd-agent-token-secret`
+  yourself
 {{- else }}
-  set `oauthSecret.enabled: true` with a credential source{{ if eq $source "k8sSecret" }} — none needed,
-  you create mcd-oauth-secret yourself{{ else }}, `oauthSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`{{ end }},
-  then remove `tokenSecret`
+  remove the `oauthSecret` block and set
+  `tokenSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
+  to use key/token authentication
+{{- end }}
+{{- else }}
+{{- if eq $source "k8sSecret" }}
+  set `oauthSecret.enabled: true` to use OAuth. `skipExternalSecrets` is
+  already true, so create `mcd-oauth-secret` yourself
+{{- else }}
+  set `oauthSecret.enabled: true` and
+  `oauthSecret.{{ ternary "awsSecretsManager.secretId" "remoteRef" (eq $source "awsSecretsManager") }}`
+  to use OAuth
+{{- end }}
+{{- if .Values.tokenSecret }}, then remove `tokenSecret`{{ end }}
 {{- end }}
 
 Verify connectivity to Monte Carlo:

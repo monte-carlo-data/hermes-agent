@@ -1,20 +1,24 @@
-"""Key/token authentication backed by a pluggable credential source.
+"""Key/token authentication over a pluggable ``CredentialsSource``.
 
-agent-common's ``FileLoginTokenProvider`` covers the case where the credential
-is a file, which is what a Kubernetes Secret mount or a Docker bind mount
-produces. This provider covers the sources that are not files — today AWS
-Secrets Manager, read by the agent itself using the pod's own AWS identity — so
-an operator who cannot run the External Secrets Operator does not have to
-materialize the credential as a Kubernetes Secret at all.
+agent-common's ``FileLoginTokenProvider`` remains the provider for
+file-backed credentials — see the note in ``login_token_provider_factory``
+for why. This provider exists for the sources that are not files.
 """
 
 import logging
 from typing import Any, Dict, Optional
 
-from apollo.egress.agent.service.login_token_provider import LoginTokenProvider
+from apollo.egress.agent.service.login_token_provider import (
+    AUTH_METHOD_TOKEN_FILE,
+    LoginTokenProvider,
+)
 from apollo.egress.agent.utils.utils import X_MCD_ID, X_MCD_TOKEN
 
-from hermes.agent.service.credentials_source import CredentialsSource
+from hermes.agent.service.credentials_source import (
+    SOURCE_AWS_SECRETS_MANAGER,
+    SOURCE_FILE,
+    CredentialsSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +31,31 @@ _MCD_TOKEN_ATTR = "mcd_token"
 _NO_TOKEN_ID = "no-token-id"
 _NO_TOKEN_SECRET = "no-token-secret"
 
+AUTH_METHOD_TOKEN_AWS_SECRETS_MANAGER = "token_aws_secrets_manager"
+
+# The authentication method is reported to the backend and grouped on by
+# support tooling, so it must exist as a literal rather than be composed from
+# a source's internal label — renaming that label must not silently change
+# the externally observed value. `SOURCE_FILE` is included even though the
+# factory never builds this provider over a file source, so the mapping stays
+# total for every source this package knows about.
+_AUTH_METHOD_BY_SOURCE: Dict[str, str] = {
+    SOURCE_FILE: AUTH_METHOD_TOKEN_FILE,
+    SOURCE_AWS_SECRETS_MANAGER: AUTH_METHOD_TOKEN_AWS_SECRETS_MANAGER,
+}
+
 
 class TokenLoginTokenProvider(LoginTokenProvider):
     """Sends `mcd_id`/`mcd_token` headers read from a credentials source."""
 
     def __init__(self, credentials_source: CredentialsSource):
         self._credentials_source = credentials_source
-        # Composed from the source rather than fixed, so reachability output
-        # distinguishes a credential read from a secret manager from one read
-        # off disk. Lines up with agent-common's `token_file`.
-        self.authentication_method = f"token_{credentials_source.source_name}"
+        # Falls back to the composed string for a source this mapping does
+        # not (yet) know about, rather than raising.
+        self.authentication_method = _AUTH_METHOD_BY_SOURCE.get(
+            credentials_source.source_name,
+            f"token_{credentials_source.source_name}",
+        )
 
     def get_token(self) -> Dict[str, str]:
         credentials = self._read_credentials()
@@ -82,11 +101,11 @@ class TokenLoginTokenProvider(LoginTokenProvider):
             logger.error(f"Failed to read agent credentials: {ex}")
             return None
 
-        if _MCD_ID_ATTR in credentials and _MCD_TOKEN_ATTR in credentials:
+        if credentials.get(_MCD_ID_ATTR) and credentials.get(_MCD_TOKEN_ATTR):
             return credentials
 
         logger.warning(
-            f"Agent credentials are missing '{_MCD_ID_ATTR}' or "
+            f"Agent credentials are missing or empty '{_MCD_ID_ATTR}' or "
             f"'{_MCD_TOKEN_ATTR}', keys present: {sorted(credentials.keys())}"
         )
         return None

@@ -2,9 +2,12 @@
 
 Two independent choices combine here: the authentication *method* (OAuth
 client credentials or an MCD key/token pair) and the *source* the credential is
-read from (a file, or AWS Secrets Manager). The helm chart renders one env var
-per configured combination, so the precedence encoded below is what an operator
-gets when a values file sets more than one.
+read from (a file, or AWS Secrets Manager). The precedence encoded below matters
+for hand-written environments — Docker Compose, ECS — where nothing enforces
+that only one combination is configured. It is not what makes these branches
+reachable when deployed via the helm chart: the chart's own validation rejects
+two sources in one block and both methods carrying a source, and it renders
+only the selected method's env vars.
 
 Environment is read inside the function rather than at module import so tests
 can patch it.
@@ -41,8 +44,10 @@ ENV_AWS_SECRETS_MANAGER_REGION = "MCD_AWS_SECRETS_MANAGER_REGION"
 def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     """Return the provider matching how this agent was configured.
 
-    OAuth wins over key/token when both are configured, matching the chart,
-    which mounts only the selected method's secret.
+    OAuth wins over key/token when both are configured. This tie-break exists
+    for the same hand-written-environment case as the source precedence (see
+    the module docstring) — it is unreachable when deployed via the chart,
+    which never renders both methods' env vars at once.
     """
     region = os.getenv(ENV_AWS_SECRETS_MANAGER_REGION)
 
@@ -63,29 +68,26 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
             token_endpoint=os.getenv(ENV_OAUTH_TOKEN_ENDPOINT),
         )
 
-    token_aws_secret_id = os.getenv(ENV_TOKEN_AWS_SECRET_ID)
     token_file_path = os.getenv(ENV_TOKEN_FILE_PATH)
+    token_source = _build_source(
+        file_path=token_file_path,
+        aws_secret_id=os.getenv(ENV_TOKEN_AWS_SECRET_ID),
+        region=region,
+        label="Key/token credentials",
+    )
+    if token_source:
+        if isinstance(token_source, FileCredentialsSource):
+            # Deliberately agent-common's provider rather than
+            # TokenLoginTokenProvider over this same source: this is the path
+            # almost every deployment uses, and switching it would rename the
+            # `token_file_path` attribute that support tooling reads out of
+            # reachability results. The two report the same authentication
+            # method.
+            logger.info(f"Getting MCD token from file: {token_source.file_path}")
+            return FileLoginTokenProvider(file_path=token_source.file_path)
 
-    if token_aws_secret_id:
-        if token_file_path:
-            logger.warning(
-                f"Both {ENV_TOKEN_AWS_SECRET_ID} and {ENV_TOKEN_FILE_PATH} are set; "
-                f"reading the key/token credential from AWS Secrets Manager"
-            )
-        source = AwsSecretsManagerCredentialsSource(
-            secret_id=token_aws_secret_id, region=region
-        )
-        logger.info(f"Getting MCD token from {source.describe()}")
-        return TokenLoginTokenProvider(credentials_source=source)
-
-    if token_file_path:
-        # Deliberately agent-common's provider rather than
-        # TokenLoginTokenProvider over a FileCredentialsSource: this is the
-        # path almost every deployment uses, and switching it would rename the
-        # `token_file_path` attribute that support tooling reads out of
-        # reachability results. The two report the same authentication method.
-        logger.info(f"Getting MCD token from file: {token_file_path}")
-        return FileLoginTokenProvider(file_path=token_file_path)
+        logger.info(f"Getting MCD token from {token_source.describe()}")
+        return TokenLoginTokenProvider(credentials_source=token_source)
 
     logger.info("Getting MCD token from env vars")
     return LocalLoginTokenProvider()

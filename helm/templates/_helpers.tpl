@@ -12,7 +12,7 @@ that combination instead.
 */}}
 {{- define "hermes.oauth.enabled" -}}
 {{- with .Values.oauthSecret -}}
-{{- if or .enabled .remoteRef .awsSecretsManager -}}
+{{- if or .enabled .remoteRef (.awsSecretsManager).secretId -}}
 true
 {{- end -}}
 {{- end -}}
@@ -46,13 +46,32 @@ condition. The three are mutually exclusive by construction: a block with both
 {{- end -}}
 
 {{/*
-The AWS region for the selected method's Secrets Manager source, or empty.
-Leaving it unset lets boto resolve the region the usual way, which is what a
-same-region deployment wants.
+The AWS region for the selected method's Secrets Manager source, or empty —
+empty lets boto resolve it the usual way.
 */}}
 {{- define "hermes.auth.awsRegion" -}}
 {{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
 {{- ($block.awsSecretsManager).region | default "" -}}
+{{- end -}}
+
+{{/*
+The Kubernetes Secret the selected method's credential is read from, its key,
+and its mount path. Defined once because the same three strings otherwise
+appear across the deployment, both ExternalSecret templates, the collectors,
+and NOTES.txt — and a consumer that keeps its own copy is a consumer the
+source model cannot see, which is how the collectors came to mount a Secret
+that no longer always exists.
+*/}}
+{{- define "hermes.auth.secretName" -}}
+{{- if eq (include "hermes.auth.method" .) "oauth" -}}mcd-oauth-secret{{- else -}}mcd-agent-token-secret{{- end -}}
+{{- end -}}
+
+{{- define "hermes.auth.secretKey" -}}
+{{- if eq (include "hermes.auth.method" .) "oauth" -}}credentials.json{{- else -}}contents.json{{- end -}}
+{{- end -}}
+
+{{- define "hermes.auth.mountPath" -}}
+{{- if eq (include "hermes.auth.method" .) "oauth" -}}/etc/secrets/mcd-oauth{{- else -}}/etc/secrets/mcd-agent-token{{- end -}}
 {{- end -}}
 
 {{/*
@@ -73,12 +92,20 @@ install reports success.
 {{- fail "oauthSecret.enabled is false but a credential source is configured under oauthSecret. Remove the oauthSecret block to use key/token authentication, or drop oauthSecret.enabled to use OAuth." -}}
 {{- end -}}
 {{- end -}}
-{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) (((.Values.tokenSecret).awsSecretsManager))) -}}
+{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) (((.Values.tokenSecret).awsSecretsManager).secretId)) -}}
 {{- fail "oauthSecret and tokenSecret are both configured with a credential source — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
 {{- end -}}
+{{/* The `if $block` is load-bearing, not defensive: an unset block arrives from
+     the dict as nil, and `hasKey` rejects a non-map outright rather than
+     returning false. */}}
 {{- range $method, $block := dict "oauthSecret" .Values.oauthSecret "tokenSecret" .Values.tokenSecret -}}
-{{- if and (($block).remoteRef) ((($block).awsSecretsManager)) -}}
+{{- if $block -}}
+{{- if and ($block.remoteRef) (($block.awsSecretsManager).secretId) -}}
 {{- fail (printf "%s sets both remoteRef and awsSecretsManager — a credential comes from one source. Keep remoteRef to sync it with the External Secrets Operator, or awsSecretsManager to have the agent read it directly." $method) -}}
+{{- end -}}
+{{- if and (hasKey $block "awsSecretsManager") (not (($block.awsSecretsManager).secretId)) -}}
+{{- fail (printf "%s.awsSecretsManager is set but %s.awsSecretsManager.secretId is empty. Set it to the name or ARN of the secret, or remove the awsSecretsManager block." $method $method) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) -}}
@@ -87,9 +114,28 @@ install reports success.
 {{- if and (eq $source "externalSecret") .Values.skipExternalSecrets -}}
 {{- fail "A remoteRef is configured but skipExternalSecrets is true — nothing would sync the credential. Remove skipExternalSecrets to use the External Secrets Operator, or replace remoteRef with awsSecretsManager to have the agent read the credential itself." -}}
 {{- end -}}
+{{/* The metrics and logs collectors read `mcd_id`/`mcd_token` out of
+     `mcd-agent-token-secret` with an init container, so they cannot work when
+     the agent reads its own credential from a secret manager — no such Secret
+     exists. Rendering them anyway parks their pods in ContainerCreating on
+     every node while the install reports success, so this fails instead and
+     names the two ways out.
+
+     Scoped to awsSecretsManager deliberately. The collectors have the same
+     incompatibility with OAuth, which predates this source and would break
+     existing releases on upgrade if failed here — tracked separately. */}}
+{{- if eq $source "awsSecretsManager" -}}
+{{- if .Values.metricsCollector.enabled -}}
+{{- fail "metricsCollector.enabled is true but the agent credential comes from AWS Secrets Manager. The metrics collector reads mcd_id/mcd_token from the mcd-agent-token-secret Secret, which is not created for this source, so its pods would never start. Set metricsCollector.enabled: false, or use a tokenSecret.remoteRef credential source." -}}
+{{- end -}}
+{{- if eq .Values.logShipping "fluentd" -}}
+{{- fail "logShipping is fluentd but the agent credential comes from AWS Secrets Manager. The logs collector reads mcd_id/mcd_token from the mcd-agent-token-secret Secret, which is not created for this source, so its pods would never start. Use logShipping: in-process (the default), or a tokenSecret.remoteRef credential source." -}}
+{{- end -}}
+{{- end -}}
 {{/* A k8sSecret source means no credential source was configured at all. That
      is only valid when the operator creates the Secret by hand, which is what
-     skipExternalSecrets declares. awsSecretsManager needs neither. */}}
+     skipExternalSecrets declares. awsSecretsManager needs neither ESO nor a
+     hand-made Secret. */}}
 {{- if and (eq $source "k8sSecret") (not .Values.skipExternalSecrets) -}}
 {{- if $oauth -}}
 {{- fail "OAuth is selected but no credential source is configured. Set oauthSecret.remoteRef to sync it with the External Secrets Operator, or oauthSecret.awsSecretsManager.secretId to have the agent read it directly, or skipExternalSecrets: true when mcd-oauth-secret is created manually." -}}

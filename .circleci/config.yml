@@ -90,6 +90,16 @@ jobs:
           extra_build_args: --target tests
           step-name: Run tests in docker build
 
+  render-helm-chart:
+    machine:
+      image: ubuntu-2204:current
+    steps:
+      - checkout
+      - *install_helm_client
+      - run:
+          name: Render Helm chart test matrix
+          command: ./helm/tests/render.sh
+
   build-and-push:
     machine:
       image: ubuntu-2204:current
@@ -236,6 +246,11 @@ workflows:
           filters:
             tags:
               only: /.*/
+      - render-helm-chart:
+          # run for all tags and branches, so the job is available for build-and-push-prod
+          filters:
+            tags:
+              only: /.*/
       - build-and-push:
           name: build-and-push-dev
           docker_hub_repository: pre-release-agent
@@ -280,6 +295,7 @@ workflows:
             - docker
           requires:
             - build-and-push-dev
+            - render-helm-chart
       - trigger-deploy:
           name: trigger-deploy-dev
           env-type: dev
@@ -304,6 +320,7 @@ workflows:
             - docker
           requires:
             - build-and-push-prod
+            - render-helm-chart
           filters:
             tags:
               only: /.*/
