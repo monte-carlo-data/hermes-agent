@@ -1,10 +1,5 @@
 {{- include "hermes.logShipping.validate" . }}
-{{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) }}
-{{- fail "oauthSecret.tokenEndpoint must use HTTPS" }}
-{{- end }}
-{{- if and (not .Values.skipExternalSecrets) (not (or ((.Values.tokenSecret).remoteRef) (and .Values.oauthSecret .Values.oauthSecret.remoteRef))) }}
-{{- fail "When skipExternalSecrets is false, either tokenSecret.remoteRef or oauthSecret.remoteRef must be set" }}
-{{- end }}
+{{- include "hermes.auth.validate" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -160,6 +155,10 @@ spec:
         - name: mcd-integrations-secrets
           secret:
             secretName: mcd-integrations-secrets
+            # Optional so a deployment with no self-hosted integration
+            # credentials doesn't require a placeholder secret to exist before
+            # install — without this the pod stays in ContainerCreating.
+            optional: true
         {{- if include "hermes.firewallCa.enabled" . }}
         {{- include "hermes.firewallCa.volumes" . | nindent 8 }}
         {{- end }}

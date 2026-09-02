@@ -5,15 +5,43 @@ in-process log levels outside a curated allowlist — DEBUG would surface
 third-party-library content (request bodies, tokens) into shipped logs.
 */}}
 {{/*
-Whether OAuth authentication is enabled. True when oauthSecret.remoteRef is set
-(cloud via ExternalSecret) or skipExternalSecrets is true and oauthSecret.enabled
-is set (manual secret creation).
+Whether OAuth authentication is enabled.
+
+Presence of a non-empty `oauthSecret` block selects OAuth — configuring the
+block is the intent, so `remoteRef` (cloud via ExternalSecret) and a bare
+`tokenEndpoint` both count. `enabled` is honoured when set explicitly, so
+`enabled: false` keeps key/token auth with the rest of the block in place.
+
+Presence-based selection is deliberate: requiring a separate `enabled: true`
+alongside a manually created `mcd-oauth-secret` meant a values file that
+looked OAuth-configured silently deployed key/token auth, mounted the token
+secret, and failed against the backend with `no-token-id`.
 */}}
 {{- define "hermes.oauth.enabled" -}}
-{{- if and .Values.oauthSecret .Values.oauthSecret.remoteRef -}}
+{{- with .Values.oauthSecret -}}
+{{- if hasKey . "enabled" -}}
+{{- if .enabled -}}true{{- end -}}
+{{- else -}}
 true
-{{- else if and .Values.oauthSecret .Values.oauthSecret.enabled -}}
-true
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Authentication configuration validation. Rendered from the deployment so a
+misconfigured release fails at template time rather than as an authentication
+failure against the backend.
+*/}}
+{{- define "hermes.auth.validate" -}}
+{{- $oauth := include "hermes.oauth.enabled" . -}}
+{{- if and $oauth ((.Values.tokenSecret).remoteRef) -}}
+{{- fail "oauthSecret and tokenSecret.remoteRef are both configured — the agent uses one authentication method at a time. Remove tokenSecret, or set oauthSecret.enabled: false to keep key/token auth." -}}
+{{- end -}}
+{{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) -}}
+{{- fail "oauthSecret.tokenEndpoint must use HTTPS" -}}
+{{- end -}}
+{{- if and (not .Values.skipExternalSecrets) (not (or ((.Values.tokenSecret).remoteRef) ((.Values.oauthSecret).remoteRef))) -}}
+{{- fail "When skipExternalSecrets is false, either tokenSecret.remoteRef or oauthSecret.remoteRef must be set" -}}
 {{- end -}}
 {{- end -}}
 

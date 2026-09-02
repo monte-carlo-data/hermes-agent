@@ -1,0 +1,39 @@
+{{/*
+  Rendered after install/upgrade and retrievable later with `helm get notes`.
+
+  Deliberately free of `lookup`: a cluster-state-dependent NOTES would render
+  differently under `helm template`, `--dry-run`, and the Terraform helm
+  provider's plan phase, and would need `get secrets` on the caller. Stating
+  which secret the release expects is enough — selecting the wrong
+  authentication method is otherwise invisible until the backend rejects the
+  agent, because a values file with no `oauthSecret` block silently deploys
+  key/token auth and ignores an `mcd-oauth-secret` created for it.
+*/}}
+{{- $ns := .Values.namespace | default "mcd-agent" -}}
+{{- $oauth := eq (include "hermes.oauth.enabled" .) "true" -}}
+{{- $secretName := "mcd-agent-token-secret" -}}
+{{- $secretKey := "contents.json" -}}
+{{- if $oauth -}}
+{{- $secretName = "mcd-oauth-secret" -}}
+{{- $secretKey = "credentials.json" -}}
+{{- end -}}
+Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
+
+This release authenticates with {{ if $oauth }}OAuth client credentials{{ else }}a key/token pair{{ end }} and reads them from:
+
+  Secret:  {{ $secretName }} (key: {{ $secretKey }})
+  Payload: {{ if $oauth }}{"client_id": "...", "client_secret": "..."}{{ else }}{"mcd_id": "...", "mcd_token": "..."}{{ end }}
+  Source:  {{ if .Values.skipExternalSecrets }}created manually with kubectl{{ else }}synced by the External Secrets Operator{{ end }}
+
+If that is not the secret you created, the release picked the other
+authentication method: {{ if $oauth }}remove the oauthSecret block from your values file to use key/token{{ else }}add `oauthSecret: {enabled: true}` to your values file to use OAuth{{ end }}.
+The agent pod stays in ContainerCreating until the secret above exists.
+
+Verify connectivity to Monte Carlo:
+
+  kubectl exec -n {{ $ns }} deploy/mcd-agent-deployment -- \
+    curl -s -X POST localhost:8080/api/v1/test/reachability
+
+A successful response contains "ok": true. On failure the response reports the
+credential the agent is configured with, which tells you whether the intended
+secret was picked up.

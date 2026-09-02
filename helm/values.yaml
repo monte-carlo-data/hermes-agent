@@ -2,6 +2,20 @@
 # Environment-specific values files override these defaults.
 # Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
 
+# Whether the chart creates the namespace named by `namespace`.
+#
+# Leave true to let the release own the namespace. Set to false when the
+# namespace is provisioned outside the release — by a platform team, by
+# `kubectl create namespace`, or by a Terraform `kubernetes_namespace`
+# resource. Helm cannot adopt a namespace it did not create, so leaving this
+# true against a pre-existing namespace fails with "invalid ownership
+# metadata" unless the namespace is hand-labelled with the release's
+# ownership annotations.
+#
+# When false, the namespace must exist before installing: it holds both the
+# release record and every chart resource.
+namespaceCreate: true
+
 replicaCount: 2
 
 image:

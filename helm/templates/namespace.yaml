@@ -1,4 +1,16 @@
+{{/*
+Set namespaceCreate to false when the namespace is provisioned outside the
+release. Helm refuses to adopt a namespace it did not create unless the
+namespace carries matching ownership metadata, so a chart-rendered Namespace
+plus a `kubectl create namespace` fails with "invalid ownership metadata" —
+which is why callers otherwise have to label and annotate the namespace by
+hand with values derived from the release name and release namespace.
+*/}}
+{{/* `| default true` would be wrong here: Go templates treat false as empty,
+     so an explicit `namespaceCreate: false` would fall back to the default. */}}
+{{- if or (not (hasKey .Values "namespaceCreate")) .Values.namespaceCreate }}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Values.namespace | default "mcd-agent" | quote }}
+{{- end }}
