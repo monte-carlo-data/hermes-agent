@@ -1,50 +1,100 @@
 {{/*
-Whether OAuth authentication is enabled. Either signal selects it: a
-`remoteRef` (the ESO path, where the credential is synced from a cloud secret
-manager) or `enabled: true` (the manual path, where the operator created
-`mcd-oauth-secret` themselves, so there is no remoteRef to key off).
+Whether OAuth authentication is enabled. Any signal inside `oauthSecret`
+selects it: `enabled: true` (the documented way), or a credential source —
+`remoteRef` for the ESO path, `awsSecretsManager` for a credential the agent
+reads itself. A source implies the method so that values files predating
+`enabled` keep working.
 
-`enabled: false` alongside a `remoteRef` is contradictory rather than an
-override, and resolving it by precedence is how a values file silently gets an
+`enabled: false` alongside a source is contradictory rather than an override,
+and resolving it by precedence is how a values file silently gets an
 authentication method its author did not choose. hermes.auth.validate rejects
 that combination instead.
 */}}
 {{- define "hermes.oauth.enabled" -}}
-{{- if and .Values.oauthSecret (or .Values.oauthSecret.remoteRef .Values.oauthSecret.enabled) -}}
+{{- with .Values.oauthSecret -}}
+{{- if or .enabled .remoteRef .awsSecretsManager -}}
 true
 {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The selected authentication method: `oauth` or `token`.
+*/}}
+{{- define "hermes.auth.method" -}}
+{{- if include "hermes.oauth.enabled" . -}}oauth{{- else -}}token{{- end -}}
+{{- end -}}
+
+{{/*
+Where the selected method's credential comes from, as one of:
+
+  awsSecretsManager — the agent reads it directly; no Kubernetes Secret exists
+  externalSecret    — ESO syncs it into a Kubernetes Secret from a remoteRef
+  k8sSecret         — a Kubernetes Secret the operator created themselves
+
+Every consumer branches on this rather than re-deriving from `remoteRef`, so
+adding a source means adding a case here instead of another term to each
+condition. The three are mutually exclusive by construction: a block with both
+`awsSecretsManager` and `remoteRef` is rejected in hermes.auth.validate.
+*/}}
+{{- define "hermes.auth.source" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- if ($block.awsSecretsManager).secretId -}}awsSecretsManager
+{{- else if $block.remoteRef -}}externalSecret
+{{- else -}}k8sSecret
+{{- end -}}
+{{- end -}}
+
+{{/*
+The AWS region for the selected method's Secrets Manager source, or empty.
+Leaving it unset lets boto resolve the region the usual way, which is what a
+same-region deployment wants.
+*/}}
+{{- define "hermes.auth.awsRegion" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- ($block.awsSecretsManager).region | default "" -}}
 {{- end -}}
 
 {{/*
 Included from the deployment so a misconfigured release fails at template time
 instead of as a backend authentication failure at runtime.
 
-Checks are keyed on the *selected* method rather than on whichever value
-happens to be present. The deployment mounts the secret for the selected
+Checks are keyed on the *selected* method and source rather than on whichever
+value happens to be present. The deployment mounts the secret for the selected
 method non-optionally, so validating anything else lets a release render with a
 mount that no template creates — the pod then waits on it forever while the
 install reports success.
 */}}
 {{- define "hermes.auth.validate" -}}
 {{- $oauth := include "hermes.oauth.enabled" . -}}
+{{- $source := include "hermes.auth.source" . -}}
 {{- with .Values.oauthSecret -}}
-{{- if and .remoteRef (hasKey . "enabled") (not .enabled) -}}
-{{- fail "oauthSecret.remoteRef is set but oauthSecret.enabled is false. Remove the oauthSecret block to use key/token authentication, or drop oauthSecret.enabled to use OAuth." -}}
+{{- if and (hasKey . "enabled") (not .enabled) (or .remoteRef .awsSecretsManager) -}}
+{{- fail "oauthSecret.enabled is false but a credential source is configured under oauthSecret. Remove the oauthSecret block to use key/token authentication, or drop oauthSecret.enabled to use OAuth." -}}
 {{- end -}}
 {{- end -}}
-{{- if and $oauth ((.Values.tokenSecret).remoteRef) -}}
-{{- fail "oauthSecret and tokenSecret.remoteRef are both configured — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
+{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) (((.Values.tokenSecret).awsSecretsManager))) -}}
+{{- fail "oauthSecret and tokenSecret are both configured with a credential source — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
+{{- end -}}
+{{- range $method, $block := dict "oauthSecret" .Values.oauthSecret "tokenSecret" .Values.tokenSecret -}}
+{{- if and (($block).remoteRef) ((($block).awsSecretsManager)) -}}
+{{- fail (printf "%s sets both remoteRef and awsSecretsManager — a credential comes from one source. Keep remoteRef to sync it with the External Secrets Operator, or awsSecretsManager to have the agent read it directly." $method) -}}
+{{- end -}}
 {{- end -}}
 {{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) -}}
 {{- fail "oauthSecret.tokenEndpoint must use HTTPS" -}}
 {{- end -}}
-{{- if not .Values.skipExternalSecrets -}}
-{{- if $oauth -}}
-{{- if not ((.Values.oauthSecret).remoteRef) -}}
-{{- fail "OAuth is selected but oauthSecret.remoteRef is not set. External Secrets Operator deployments need a remote reference; set skipExternalSecrets: true when mcd-oauth-secret is created manually." -}}
+{{- if and (eq $source "externalSecret") .Values.skipExternalSecrets -}}
+{{- fail "A remoteRef is configured but skipExternalSecrets is true — nothing would sync the credential. Remove skipExternalSecrets to use the External Secrets Operator, or replace remoteRef with awsSecretsManager to have the agent read the credential itself." -}}
 {{- end -}}
-{{- else if not ((.Values.tokenSecret).remoteRef) -}}
-{{- fail "Key/token authentication is selected but tokenSecret.remoteRef is not set. Set tokenSecret.remoteRef, or configure oauthSecret to use OAuth, or set skipExternalSecrets: true when mcd-agent-token-secret is created manually." -}}
+{{/* A k8sSecret source means no credential source was configured at all. That
+     is only valid when the operator creates the Secret by hand, which is what
+     skipExternalSecrets declares. awsSecretsManager needs neither. */}}
+{{- if and (eq $source "k8sSecret") (not .Values.skipExternalSecrets) -}}
+{{- if $oauth -}}
+{{- fail "OAuth is selected but no credential source is configured. Set oauthSecret.remoteRef to sync it with the External Secrets Operator, or oauthSecret.awsSecretsManager.secretId to have the agent read it directly, or skipExternalSecrets: true when mcd-oauth-secret is created manually." -}}
+{{- else -}}
+{{- fail "Key/token authentication is selected but no credential source is configured. Set tokenSecret.remoteRef to sync it with the External Secrets Operator, or tokenSecret.awsSecretsManager.secretId to have the agent read it directly, or skipExternalSecrets: true when mcd-agent-token-secret is created manually." -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
