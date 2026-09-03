@@ -12,8 +12,8 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | Namespace | configurable (default `mcd-agent`) | `namespaceCreate` (default `true`) |
 | ServiceAccount | `mcd-agent-service-account` | Always |
 | SecretStore | `mcd-agent-secret-store` | `!skipExternalSecrets` |
-| ExternalSecret | `mcd-agent-token-secret` | `tokenSecret.remoteRef` is set |
-| ExternalSecret | `mcd-oauth-secret` | `oauthSecret.remoteRef` is set |
+| ExternalSecret | `mcd-agent-token-secret` | key/token auth with a `tokenSecret.remoteRef` source |
+| ExternalSecret | `mcd-oauth-secret` | OAuth with an `oauthSecret.remoteRef` source |
 | ExternalSecret | `mcd-integrations-secrets` | `integrationsSecrets.data` is set |
 | ClusterRole + Binding | `mcd-agent-metrics-reader` | `metricsCollector.enabled` |
 
@@ -246,7 +246,7 @@ When `autoscaling.enabled` is `true`, the Deployment omits `replicas:` so the HP
 
 ### Secret Store
 
-The chart uses the [External Secrets Operator](https://external-secrets.io/) to sync secrets from cloud secret managers. Configure via `secretStore.provider` with your cloud-specific settings. Set `skipExternalSecrets: true` for local development where secrets are created manually.
+The chart uses the [External Secrets Operator](https://external-secrets.io/) to sync secrets from cloud secret managers. Configure via `secretStore.provider` with your cloud-specific settings. Set `skipExternalSecrets: true` for local development where secrets are created manually, or when reading credentials directly from AWS Secrets Manager on a cluster without ESO (see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager)). It is incompatible with a `remoteRef` still configured on `tokenSecret` or `oauthSecret` — that combination fails at template time (see [OAuth Authentication](#oauth-authentication)).
 
 Only the authentication secret is required. `mcd-integrations-secrets` is mounted optionally, so no placeholder secret is needed when there are no self-hosted integration credentials — the `mcd-integrations-secrets` ExternalSecret is rendered only when `integrationsSecrets.data` is set.
 
@@ -278,6 +278,96 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 
 When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
 
+### Reading Credentials Directly from AWS Secrets Manager
+
+On EKS the agent can read its own credential out of AWS Secrets Manager instead of having it synced into a Kubernetes Secret. Nothing materializes the credential in the cluster, and the External Secrets Operator is not involved — useful where ESO is unavailable, or where putting the credential in a Secret is not acceptable.
+
+```yaml
+# key/token
+tokenSecret:
+  awsSecretsManager:
+    secretId: mcd/agent/token       # name or ARN
+    region: us-east-1               # optional
+
+# or OAuth
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    secretId: mcd/agent/oauth
+
+skipExternalSecrets: true
+
+# Required: defaults to true, and the collectors cannot read this source.
+metricsCollector:
+  enabled: false
+```
+
+Set `skipExternalSecrets: true` unless ESO is also installed for another reason (e.g. syncing integration credentials): with only `awsSecretsManager` configured, nothing needs the `SecretStore` the chart otherwise renders, and on a cluster with no ESO the `SecretStore` CRD doesn't exist, so `helm install` fails with `no matches for kind "SecretStore"`. Leave `skipExternalSecrets` unset only when you also want ESO for integration credentials, and configure `secretStore` in that case. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.
+
+**The metrics and logs collectors are incompatible with this source.** Both read `mcd_id`/`mcd_token` out of the `mcd-agent-token-secret` Secret with an init container, and that Secret is not created when the agent reads its own credential from a secret manager — so their pods would sit in `ContainerCreating` on every node while the install reported success. The chart rejects the combination at template time rather than rendering it. Set `metricsCollector.enabled: false` and leave `logShipping` at its default `in-process` (the agent ships its own logs, so nothing is lost there), or use a `remoteRef` credential source if you need the collectors.
+
+Container CPU and memory metrics are the only thing given up. If you need them alongside this source, the collectors would have to learn to read the credential the same way the agent does — not currently implemented.
+
+**Migrating an existing ESO deployment to ASM.** Removing `remoteRef` and setting `skipExternalSecrets: true` must land in the same change — either edit alone leaves an invalid intermediate state: dropping `remoteRef` while `skipExternalSecrets` is unset still renders a `SecretStore` against a cluster that may have no such CRD, and setting `skipExternalSecrets: true` while `remoteRef` remains is rejected at template time (see [OAuth Authentication](#oauth-authentication) for the full enumeration of rejected combinations).
+
+**IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret. That is a different principal from the one the `secretStore` uses — with ESO it is the External Secrets Operator that reads the secret, so an existing deployment grants the permission to ESO rather than to the agent.
+
+The permission policy is the same either way. Scope `Resource` to the single secret, not a prefix — the section above shows self-hosted integration credentials commonly read through the same pod identity, so a wildcard like `mcd/agent/*` also grants the agent read access to every other secret an operator organizes under that prefix. Secrets Manager appends a random six-character suffix to the name, so an ARN assembled from the name alone does not match. Use the secret's real ARN — `aws secretsmanager describe-secret --secret-id mcd/agent/token --query ARN --output text`. Deleting and recreating the secret produces a new suffix and a new ARN; rotating its value does not.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "<the-secret-arn>"
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["kms:Decrypt"],
+      "Resource": "<kms-key-arn>",
+      "Sid": "OnlyRequiredForCustomerManagedKmsKeys"
+    }
+  ]
+}
+```
+
+The `kms:Decrypt` statement is only required when the secret is encrypted with a customer-managed KMS key — Secrets Manager's default AWS-managed key needs no extra grant. Without it on a CMK-encrypted secret, the read fails with `AccessDeniedException`, which surfaces the same way a missing `GetSecretValue` grant does — see below.
+
+How that role reaches the agent's service account is up to your cluster. Both mechanisms work — the agent resolves credentials through the standard AWS chain and does not care which is in use:
+
+- **EKS Pod Identity** (what the Terraform modules use). Requires the `eks-pod-identity-agent` add-on, a role trusted by `pods.eks.amazonaws.com` for `sts:AssumeRole` and `sts:TagSession`, and an association. No service-account annotation is involved:
+
+  ```bash
+  aws eks create-pod-identity-association \
+    --cluster-name <cluster> \
+    --namespace mcd-agent \
+    --service-account mcd-agent-service-account \
+    --role-arn <role-arn>
+  ```
+
+- **IRSA**, for clusters already standardized on it. Requires a cluster OIDC provider and a role whose trust policy allows `sts:AssumeRoleWithWebIdentity` from `system:serviceaccount:<namespace>:mcd-agent-service-account`, then annotate the service account:
+
+  ```yaml
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<agent-role>
+  ```
+
+In two common cases the role already exists and only its policy needs widening:
+
+- **Deployed with a Terraform module.** The agent's service account already has a Pod Identity association to the `<cluster>-pod-identity` role, which carries the S3 policy for agent storage. Add Secrets Manager read to it — there is no new role or association to create.
+- **Already reading self-hosted integration credentials from AWS Secrets Manager.** The agent fetches those itself, through the same pod identity, so it already holds `secretsmanager:GetSecretValue`. Extend the resource scope to cover the agent's own secret.
+
+Without the permission the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id it tried to read. A missing `kms:Decrypt` grant on a customer-managed KMS key surfaces the same way — the `AccessDeniedException` is indistinguishable from a missing `GetSecretValue` grant in the reachability test output.
+
+The source caches the credential for 15 minutes. Key/token reads the source on every request, so a rotated secret is picked up within that window without a restart — more promptly than the ESO path's default hourly refresh. OAuth only re-reads the source when its access token needs refreshing — roughly every 48 minutes with a one-hour token (the agent refreshes at about 80% of the token lifetime) — so for OAuth the token lifetime, not the 15-minute source cache, is the binding constraint on how quickly a rotation is picked up. Both are still faster than ESO's hourly default. A read failure with a cached credential in hand logs a warning and keeps using it, since it stays valid until rotation.
+
+Detaching the IAM policy does not stop a running agent: it keeps using its already-cached credential until the staleness bound expires, and only then fails to refresh. Revoking access at the backend (rotating the credential's counterpart there) is the effective lever if the agent must be cut off promptly.
+
+AWS Secrets Manager is the only direct source today. Azure Key Vault and Google Secret Manager deployments continue to use ESO.
+
 ### OAuth Authentication
 
 The agent supports OAuth 2.0 `client_credentials` authentication as an alternative to the
@@ -285,7 +375,7 @@ key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires
 and uses them for all backend communication. The chart uses one authentication method at a time
 — when OAuth is enabled, only the OAuth secret is mounted.
 
-Set `oauthSecret.enabled: true` to use OAuth. `enabled` selects the authentication method; `remoteRef` says where the credentials come from — set it for ExternalSecret deployments, omit it when you create `mcd-oauth-secret` yourself. Keeping the two separate means adding a new credential source later doesn't change how the method is chosen.
+Set `oauthSecret.enabled: true` to use OAuth. `enabled` selects the authentication method; the credential itself comes from one of three sources — an ExternalSecret (`remoteRef`), AWS Secrets Manager (`awsSecretsManager`, see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager)), or a Secret you create yourself (omit both, and set `skipExternalSecrets: true`). Keeping `enabled` separate from the source means adding a new credential source doesn't change how the method is chosen.
 
 ```yaml
 # ExternalSecret deployments
@@ -303,9 +393,20 @@ oauthSecret:
 |---|---|---|
 | `oauthSecret.enabled` | Selects OAuth authentication | _(unset)_ |
 | `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
+| `oauthSecret.awsSecretsManager.secretId` | AWS Secrets Manager secret the agent reads directly — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) | _(unset)_ |
+| `oauthSecret.awsSecretsManager.region` | Optional region override for the above | _(unset)_ |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
 
-For backwards compatibility a `remoteRef` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. Two combinations fail at template time rather than silently picking a method: `remoteRef` together with `enabled: false` (contradictory), and `oauthSecret` alongside `tokenSecret.remoteRef` (two methods).
+For backwards compatibility a `remoteRef` or `awsSecretsManager` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. The following combinations fail at template time rather than silently picking a method or a source:
+
+- `enabled: false` alongside a credential source (`remoteRef` or `awsSecretsManager`) — contradictory.
+- `oauthSecret` and `tokenSecret` both carrying a credential source — two methods configured at once.
+- `remoteRef` and `awsSecretsManager` in the same block (`oauthSecret` or `tokenSecret`) — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) for why these are mutually exclusive.
+- `remoteRef` together with `skipExternalSecrets: true` — nothing would sync the credential; this also applies to the migration case in the ASM section above, where removing `remoteRef` and setting `skipExternalSecrets: true` must land together.
+- `awsSecretsManager` present without a `secretId` — an empty source is not a valid one.
+- `awsSecretsManager` together with `metricsCollector.enabled: true` or `logShipping: fluentd` — the collectors cannot read this source; see below.
+
+The `remoteRef` + `skipExternalSecrets` rejection is a deliberate behaviour change: an existing values file that kept a `remoteRef` after switching to a hand-created Secret will fail on its next upgrade rather than silently rendering a broken `SecretStore`.
 
 The release prints the secret name, key, and payload shape it expects on install — `helm get notes <release>` retrieves it later. If that isn't the secret you created, the release selected the other authentication method.
 
@@ -344,6 +445,8 @@ services:
     volumes:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
+
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_OAUTH_AWS_SECRET_ID` (or `MCD_TOKEN_AWS_SECRET_ID`, plus an optional `MCD_AWS_SECRETS_MANAGER_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private

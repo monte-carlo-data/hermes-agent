@@ -99,15 +99,20 @@ inProcessLogs:
 # remoteRef: ExternalSecret remote reference (follows the same pattern as
 #   tokenSecret.remoteRef). The ExternalSecret creates a K8s Secret named
 #   `mcd-oauth-secret` with a `credentials.json` key containing JSON:
-#   {"client_id": "...", "client_secret": "..."}. Omit it when the Secret is
-#   created manually (skipExternalSecrets: true).
+#   {"client_id": "...", "client_secret": "..."}.
+# awsSecretsManager.secretId: name or ARN of an AWS Secrets Manager secret the
+#   agent reads itself. No Kubernetes Secret is created and the External
+#   Secrets Operator is not involved — see "Reading Credentials Directly from
+#   AWS Secrets Manager" in helm/README.md for the IAM prerequisite.
+# awsSecretsManager.region: optional; omit to let the agent resolve the region
+#   the usual way, which is what a same-region deployment wants.
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.
 #
-# A remoteRef on its own also selects OAuth, for compatibility with the
-# Terraform modules and older values files. Setting `remoteRef` together with
-# `enabled: false` is contradictory and is rejected at template time.
+# A credential source on its own also selects OAuth, for compatibility with the
+# Terraform modules and older values files. Configuring a source together with
+# `enabled: false`, or two sources in one block, is rejected at template time.
 #
 # ExternalSecret path (cloud secret manager):
 # oauthSecret:
@@ -115,10 +120,42 @@ inProcessLogs:
 #   remoteRef:
 #     key: <secret-name>
 #
+# AWS Secrets Manager path (agent reads the secret directly using the AWS
+# identity bound to its service account, via EKS Pod Identity or IRSA). Needs
+# `metricsCollector.enabled: false`, which defaults to true — the collectors
+# cannot read this source, and the combination is rejected at template time:
+# oauthSecret:
+#   enabled: true
+#   awsSecretsManager:
+#     secretId: <secret-name-or-arn>
+#
 # Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
 # oauthSecret:
 #   enabled: true
+
+# Key/token authentication credential source. This is the default
+# authentication method — no top-level `enabled` key selects it; a credential
+# source alone does, mirroring oauthSecret without its `enabled` key. See
+# "Reading Credentials Directly from AWS Secrets Manager" in helm/README.md
+# for the awsSecretsManager IAM prerequisite.
 #
+# ExternalSecret path (cloud secret manager). The ExternalSecret creates a
+# K8s Secret named `mcd-agent-token-secret` with a `contents.json` key
+# containing JSON: {"mcd_id": "...", "mcd_token": "..."}.
+# tokenSecret:
+#   remoteRef:
+#     key: <secret-name>
+#
+# AWS Secrets Manager path (agent reads the secret directly, with the same
+# `metricsCollector.enabled: false` requirement as above):
+# tokenSecret:
+#   awsSecretsManager:
+#     secretId: <secret-name-or-arn>
+#     region: <optional-region-override>
+#
+# Manual path: omit tokenSecret entirely and set skipExternalSecrets: true —
+# create mcd-agent-token-secret yourself.
+
 # Integration credentials synced from your cloud secret manager. Each entry
 # becomes a file at /etc/secrets/integrations/<secretKey>. The agent's
 # integrations volume is mounted optionally, so this is only needed when you

@@ -12,8 +12,13 @@ from apollo.egress.agent.service.login_token_provider import (
     ATTR_NAME_KEY_ID,
 )
 
+from hermes.agent.service.credentials_source import (
+    ATTR_NAME_FILE_PATH,
+    ATTR_NAME_SOURCE,
+    SOURCE_FILE,
+    FileCredentialsSource,
+)
 from hermes.agent.service.oauth_login_token_provider import (
-    ATTR_NAME_CREDENTIALS_FILE_PATH,
     ATTR_NAME_TOKEN_ENDPOINT,
     AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS,
     OAuthLoginTokenProvider,
@@ -35,12 +40,18 @@ class OAuthLoginTokenProviderTests(TestCase):
         os.unlink(self._creds_path)
 
     def _make_provider(self, **kwargs):
+        # `file_path` stays the test-side knob: these cases are about the
+        # provider's token handling and its reporting of an unreadable
+        # credential, both of which are exercised through the file source.
         defaults = {
             "file_path": self._creds_path,
             "backend_service_url": "https://artemis.getmontecarlo.com:443",
         }
         defaults.update(kwargs)
-        return OAuthLoginTokenProvider(**defaults)
+        file_path = defaults.pop("file_path")
+        return OAuthLoginTokenProvider(
+            credentials_source=FileCredentialsSource(file_path), **defaults
+        )
 
     def _make_success_response(self, access_token="test-jwt", expires_in=3600):
         response = Mock()
@@ -543,7 +554,7 @@ class OAuthCredentialReportingTests(TestCase):
 
     def _make_provider(self):
         return OAuthLoginTokenProvider(
-            file_path=self._creds_path,
+            credentials_source=FileCredentialsSource(self._creds_path),
             backend_service_url="https://artemis.getmontecarlo.com",
         )
 
@@ -559,7 +570,12 @@ class OAuthCredentialReportingTests(TestCase):
             {
                 ATTR_NAME_KEY_ID: "a-client-id",
                 ATTR_NAME_AUTH_METHOD: AUTH_METHOD_OAUTH_CLIENT_CREDENTIALS,
-                ATTR_NAME_CREDENTIALS_FILE_PATH: self._creds_path,
+                # `credentials_file_path` is retained for support tooling that
+                # already reads it; `credentials_source` is what distinguishes
+                # a file-backed credential from one read out of a secret
+                # manager.
+                ATTR_NAME_SOURCE: SOURCE_FILE,
+                ATTR_NAME_FILE_PATH: self._creds_path,
                 ATTR_NAME_TOKEN_ENDPOINT: "https://m2m.getmontecarlo.com/oauth2/token",
             },
             credential_info,
@@ -582,7 +598,7 @@ class OAuthCredentialReportingTests(TestCase):
         self.assertEqual("no-client-id", provider.get_credential_id())
         self.assertEqual(
             self._creds_path,
-            provider.get_credential_info()[ATTR_NAME_CREDENTIALS_FILE_PATH],
+            provider.get_credential_info()[ATTR_NAME_FILE_PATH],
         )
 
     def test_credential_id_reports_no_client_id_when_file_is_unparseable(self):
@@ -600,7 +616,7 @@ class OAuthCredentialReportingTests(TestCase):
         self.assertEqual("no-client-id", provider.get_credential_id())
         self.assertEqual(
             self._creds_path,
-            provider.get_credential_info()[ATTR_NAME_CREDENTIALS_FILE_PATH],
+            provider.get_credential_info()[ATTR_NAME_FILE_PATH],
         )
 
     def test_credential_id_reports_no_client_id_when_file_is_not_utf8(self):
@@ -609,3 +625,28 @@ class OAuthCredentialReportingTests(TestCase):
         provider = self._make_provider()
 
         self.assertEqual("no-client-id", provider.get_credential_id())
+
+    def test_credential_id_reports_no_client_id_on_unconverted_source_error(self):
+        # Guards the bare `except Exception` in get_credential_id: a file
+        # source's failures are always converted to CredentialsSourceError by
+        # _read_credentials, so every other case in this class exercises that
+        # path, not the catch-all. A secret-manager source can raise
+        # something the source layer never converts (e.g. boto failing to
+        # resolve the pod's AWS credentials) — narrowing the except clause to
+        # OAuthTokenError would keep this suite green while breaking that
+        # case in production.
+        source = Mock()
+        source.read.side_effect = RuntimeError("boto blew up")
+        source.describe.return_value = {
+            ATTR_NAME_SOURCE: "aws_secrets_manager",
+            "credentials_secret_id": "mcd/agent/oauth",
+        }
+        provider = OAuthLoginTokenProvider(
+            credentials_source=source,
+            backend_service_url="https://artemis.getmontecarlo.com",
+        )
+
+        self.assertEqual("no-client-id", provider.get_credential_id())
+        credential_info = provider.get_credential_info()
+        self.assertEqual("aws_secrets_manager", credential_info[ATTR_NAME_SOURCE])
+        self.assertEqual("mcd/agent/oauth", credential_info["credentials_secret_id"])
