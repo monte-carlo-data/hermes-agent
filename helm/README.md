@@ -306,7 +306,7 @@ metricsCollector:
 
 Plain JSON in `SecretString` is the default. Binary secrets — `--secret-binary`, or Terraform's `secret_binary` — are read as UTF-8 with no extra configuration.
 
-Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block:
+Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block, including the per-field shape below:
 
 ```yaml
 tokenSecret:
@@ -324,6 +324,29 @@ Decoding is never automatic: without the flag an encoded payload fails with `Cre
 | `not valid JSON` with no base64 note | A bare value, or malformed JSON |
 | `Secret X is configured as base64-encoded but its value is not valid base64 text` | Flag set against a plain payload |
 | `neither a string nor a binary value` | Neither field populated |
+
+#### One Secret per Credential Field
+
+Prefer a single secret holding the whole credential as JSON — its rotation is atomic, since every field comes from the same version. Where the convention is one value per secret, each field can name its own instead, holding a bare value:
+
+```yaml
+# key/token
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: mcd/agent/mcd-id
+    mcdTokenSecretId: mcd/agent/mcd-token
+
+# or OAuth
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientIdSecretId: mcd/agent/client-id
+    clientSecretSecretId: mcd/agent/client-secret
+```
+
+The IAM policy needs each secret's ARN, and rotation is no longer atomic: the reads are separate API calls, so one landing mid-rotation can pair a new value with an old one until the next refresh.
+
+`secretId` and the per-field keys are mutually exclusive, and a partially configured block is rejected — both fail at template time.
 
 Set `skipExternalSecrets: true` unless ESO is also installed for another reason (e.g. syncing integration credentials): with only `awsSecretsManager` configured, nothing needs the `SecretStore` the chart otherwise renders, and on a cluster with no ESO the `SecretStore` CRD doesn't exist, so `helm install` fails with `no matches for kind "SecretStore"`. Leave `skipExternalSecrets` unset only when you also want ESO for integration credentials, and configure `secretStore` in that case. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.
 
@@ -417,6 +440,8 @@ oauthSecret:
 | `oauthSecret.enabled` | Selects OAuth authentication | _(unset)_ |
 | `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
 | `oauthSecret.awsSecretsManager.secretId` | AWS Secrets Manager secret the agent reads directly — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) | _(unset)_ |
+| `oauthSecret.awsSecretsManager.clientIdSecretId` | Secret holding just the `client_id`, for one-value-per-secret conventions — see [One Secret per Credential Field](#one-secret-per-credential-field) | _(unset)_ |
+| `oauthSecret.awsSecretsManager.clientSecretSecretId` | Secret holding just the `client_secret`; required alongside the above | _(unset)_ |
 | `oauthSecret.awsSecretsManager.region` | Optional region override for the above | _(unset)_ |
 | `oauthSecret.awsSecretsManager.base64Encoded` | Decode every secret in this block as base64 before use — see [How the Payload Is Stored](#how-the-payload-is-stored) | `false` |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
@@ -427,7 +452,9 @@ For backwards compatibility a `remoteRef` or `awsSecretsManager` on its own also
 - `oauthSecret` and `tokenSecret` both carrying a credential source — two methods configured at once.
 - `remoteRef` and `awsSecretsManager` in the same block (`oauthSecret` or `tokenSecret`) — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) for why these are mutually exclusive.
 - `remoteRef` together with `skipExternalSecrets: true` — nothing would sync the credential; this also applies to the migration case in the ASM section above, where removing `remoteRef` and setting `skipExternalSecrets: true` must land together.
-- `awsSecretsManager` present without a `secretId` — an empty source is not a valid one.
+- `awsSecretsManager` naming no secret at all — an empty source is not a valid one.
+- `awsSecretsManager` with both `secretId` and per-field keys — the credential is read either from one secret or from one per field, not both.
+- `awsSecretsManager` with only some of its per-field keys — the missing field would have no secret to read.
 - `awsSecretsManager` together with `metricsCollector.enabled: true` or `logShipping: fluentd` — the collectors cannot read this source; see below.
 
 The `remoteRef` + `skipExternalSecrets` rejection is a deliberate behaviour change: an existing values file that kept a `remoteRef` after switching to a hand-created Secret will fail on its next upgrade rather than silently rendering a broken `SecretStore`.
@@ -470,7 +497,7 @@ services:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
 
-On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. One secret per credential field works there too, via `MCD_AWS_SECRET_ID_CLIENT_ID` / `MCD_AWS_SECRET_ID_CLIENT_SECRET` (or `MCD_AWS_SECRET_ID_MCD_ID` / `MCD_AWS_SECRET_ID_MCD_TOKEN`), and `MCD_AWS_SECRET_BASE64_ENCODED=true` decodes them. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private

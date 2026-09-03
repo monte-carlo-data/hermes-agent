@@ -10,20 +10,22 @@ from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProv
 from hermes.agent.service.credentials_source import (
     ATTR_NAME_FILE_PATH,
     ATTR_NAME_REGION,
-    ATTR_NAME_BASE64_ENCODED,
     ATTR_NAME_SECRET_ID,
+    ATTR_NAME_BASE64_ENCODED,
+    ATTR_NAME_SECRET_IDS,
     SOURCE_AWS_SECRETS_MANAGER,
     SOURCE_FILE,
     ATTR_NAME_SOURCE,
 )
 from hermes.agent.service.login_token_provider_factory import (
     ENV_AWS_SECRET_BASE64_ENCODED,
+    ENV_AWS_SECRET_ID_BY_OAUTH_FIELD,
+    ENV_AWS_SECRET_ID_BY_TOKEN_FIELD,
     ENV_AWS_SECRET_ID_KEY_TOKEN,
     ENV_AWS_SECRET_ID_OAUTH,
     ENV_AWS_SECRET_REGION,
     ENV_OAUTH_FILE_PATH,
     ENV_OAUTH_TOKEN_ENDPOINT,
-    ENV_AWS_SECRET_ID_KEY_TOKEN,
     ENV_TOKEN_FILE_PATH,
     build_login_token_provider,
 )
@@ -35,13 +37,27 @@ _BACKEND = "https://artemis.getmontecarlo.com"
 # Every env var the factory consults, cleared by default so each test declares
 # only the combination it is about.
 _ALL_ENV = {
-    ENV_OAUTH_FILE_PATH: "",
-    ENV_AWS_SECRET_ID_OAUTH: "",
-    ENV_OAUTH_TOKEN_ENDPOINT: "",
-    ENV_TOKEN_FILE_PATH: "",
-    ENV_AWS_SECRET_REGION: "",
-    ENV_AWS_SECRET_BASE64_ENCODED: "",
-    ENV_AWS_SECRET_ID_KEY_TOKEN: "",
+    env: ""
+    for env in (
+        ENV_OAUTH_FILE_PATH,
+        ENV_TOKEN_FILE_PATH,
+        ENV_OAUTH_TOKEN_ENDPOINT,
+        ENV_AWS_SECRET_ID_OAUTH,
+        ENV_AWS_SECRET_ID_KEY_TOKEN,
+        ENV_AWS_SECRET_REGION,
+        ENV_AWS_SECRET_BASE64_ENCODED,
+        *ENV_AWS_SECRET_ID_BY_OAUTH_FIELD.values(),
+        *ENV_AWS_SECRET_ID_BY_TOKEN_FIELD.values(),
+    )
+}
+
+_OAUTH_FIELDS = {
+    ENV_AWS_SECRET_ID_BY_OAUTH_FIELD["client_id"]: "mcd/agent/client-id",
+    ENV_AWS_SECRET_ID_BY_OAUTH_FIELD["client_secret"]: "mcd/agent/client-secret",
+}
+_TOKEN_FIELDS = {
+    ENV_AWS_SECRET_ID_BY_TOKEN_FIELD["mcd_id"]: "mcd/agent/id",
+    ENV_AWS_SECRET_ID_BY_TOKEN_FIELD["mcd_token"]: "mcd/agent/token",
 }
 
 
@@ -81,6 +97,69 @@ class BuildLoginTokenProviderTests(TestCase):
                 ATTR_NAME_SECRET_ID: "mcd/agent/token",
             },
             provider._credentials_source.describe(),
+        )
+
+    def test_token_per_field_secrets_use_secrets_manager_source(self):
+        provider = self._build(**_TOKEN_FIELDS)
+        self.assertIsInstance(provider, TokenLoginTokenProvider)
+        # Reported as the same source, so support tooling that keys on
+        # `aws_secrets_manager` keeps working across both shapes.
+        self.assertEqual("token_aws_secrets_manager", provider.authentication_method)
+        self.assertEqual(
+            {
+                ATTR_NAME_SOURCE: SOURCE_AWS_SECRETS_MANAGER,
+                ATTR_NAME_SECRET_IDS: (
+                    "mcd_id=mcd/agent/id, mcd_token=mcd/agent/token"
+                ),
+            },
+            provider._credentials_source.describe(),
+        )
+
+    def test_oauth_per_field_secrets_use_secrets_manager_source(self):
+        provider = self._build(**_OAUTH_FIELDS)
+        self.assertIsInstance(provider, OAuthLoginTokenProvider)
+        self.assertEqual(
+            "client_id=mcd/agent/client-id, client_secret=mcd/agent/client-secret",
+            provider._credentials_source.describe()[ATTR_NAME_SECRET_IDS],
+        )
+
+    def test_single_secret_wins_over_per_field_secrets(self):
+        # Only reachable in a hand-written environment; the chart rejects it.
+        # The single secret wins, being the shape whose rotation is atomic.
+        provider = self._build(
+            **{**_TOKEN_FIELDS, ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/whole"}
+        )
+        self.assertEqual(
+            "mcd/agent/whole",
+            provider._credentials_source.describe()[ATTR_NAME_SECRET_ID],
+        )
+
+    def test_per_field_secrets_prefer_aws_over_file(self):
+        provider = self._build(
+            **{**_TOKEN_FIELDS, ENV_TOKEN_FILE_PATH: "/etc/secrets/contents.json"}
+        )
+        self.assertIsInstance(provider, TokenLoginTokenProvider)
+        self.assertEqual(
+            SOURCE_AWS_SECRETS_MANAGER,
+            provider._credentials_source.describe()[ATTR_NAME_SOURCE],
+        )
+
+    def test_region_is_passed_to_the_per_field_source(self):
+        provider = self._build(**{**_TOKEN_FIELDS, ENV_AWS_SECRET_REGION: "eu-west-1"})
+        self.assertEqual(
+            "eu-west-1",
+            provider._credentials_source.describe()[ATTR_NAME_REGION],
+        )
+
+    def test_a_partially_configured_field_set_is_still_used(self):
+        # The chart rejects this; in a hand-written environment the provider is
+        # left to report the field it could not fill.
+        provider = self._build(
+            **{ENV_AWS_SECRET_ID_BY_TOKEN_FIELD["mcd_id"]: "mcd/agent/id"}
+        )
+        self.assertEqual(
+            "mcd_id=mcd/agent/id",
+            provider._credentials_source.describe()[ATTR_NAME_SECRET_IDS],
         )
 
     def test_base64_flag_is_passed_to_the_aws_source(self):

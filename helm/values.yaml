@@ -133,6 +133,15 @@ inProcessLogs:
 # that hold base64-encoded content need `base64Encoded: true`, which applies to
 # every secret in the block. See helm/README.md.
 #
+# Or one secret per credential field, for deployments whose convention is one
+# value per secret. Each secret holds a bare value, not JSON. Prefer the single
+# secret above where the convention allows it — its rotation is atomic:
+# oauthSecret:
+#   enabled: true
+#   awsSecretsManager:
+#     clientIdSecretId: <secret-name-or-arn>
+#     clientSecretSecretId: <secret-name-or-arn>
+#
 # Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
 # oauthSecret:
 #   enabled: true
@@ -156,6 +165,12 @@ inProcessLogs:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
 #     region: <optional-region-override>
+#
+# Or one secret per credential field, as for oauthSecret above:
+# tokenSecret:
+#   awsSecretsManager:
+#     mcdIdSecretId: <secret-name-or-arn>
+#     mcdTokenSecretId: <secret-name-or-arn>
 #
 # Manual path: omit tokenSecret entirely and set skipExternalSecrets: true —
 # create mcd-agent-token-secret yourself.

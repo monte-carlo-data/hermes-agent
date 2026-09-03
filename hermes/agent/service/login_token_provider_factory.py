@@ -1,8 +1,8 @@
 """Chooses the agent's login token provider from the environment.
 
-Two independent choices combine here: the authentication *method* (OAuth
-client credentials or an MCD key/token pair) and the *source* the credential is
-read from (a file, or AWS Secrets Manager).
+Two independent choices combine: the authentication *method* (OAuth or an MCD
+key/token pair) and the *source* the credential is read from (a file, one AWS
+Secrets Manager secret holding the whole credential, or one secret per field).
 
 The precedence below matters only in hand-written environments — Docker
 Compose, ECS: the chart rejects two sources in one block and both methods
@@ -13,7 +13,7 @@ Environment is read inside the function, not at import, so tests can patch it.
 
 import logging
 import os
-from typing import Optional
+from typing import Dict, Optional
 
 from apollo.egress.agent.service.file_login_token_provider import FileLoginTokenProvider
 from apollo.egress.agent.service.login_token_provider import (
@@ -40,9 +40,18 @@ ENV_TOKEN_FILE_PATH = "MCD_TOKEN_FILE_PATH"
 ENV_OAUTH_TOKEN_ENDPOINT = "MCD_OAUTH_TOKEN_ENDPOINT"
 
 # `SecretId` is AWS's own term for what these hold: a secret's name or its
-# full ARN.
+# full ARN. Two name a secret holding the whole credential as JSON; the rest
+# name a secret holding one credential field.
 ENV_AWS_SECRET_ID_OAUTH = "MCD_AWS_SECRET_ID_OAUTH"
 ENV_AWS_SECRET_ID_KEY_TOKEN = "MCD_AWS_SECRET_ID_KEY_TOKEN"
+ENV_AWS_SECRET_ID_BY_OAUTH_FIELD = {
+    "client_id": "MCD_AWS_SECRET_ID_CLIENT_ID",
+    "client_secret": "MCD_AWS_SECRET_ID_CLIENT_SECRET",
+}
+ENV_AWS_SECRET_ID_BY_TOKEN_FIELD = {
+    "mcd_id": "MCD_AWS_SECRET_ID_MCD_ID",
+    "mcd_token": "MCD_AWS_SECRET_ID_MCD_TOKEN",
+}
 ENV_AWS_SECRET_REGION = "MCD_AWS_SECRET_REGION"
 ENV_AWS_SECRET_BASE64_ENCODED = "MCD_AWS_SECRET_BASE64_ENCODED"
 
@@ -59,6 +68,7 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     oauth_source = _build_source(
         file_path=os.getenv(ENV_OAUTH_FILE_PATH),
         aws_secret_id=os.getenv(ENV_AWS_SECRET_ID_OAUTH),
+        aws_field_secret_ids=_field_secret_ids(ENV_AWS_SECRET_ID_BY_OAUTH_FIELD),
         region=region,
         base64_encoded=base64_encoded,
         label="OAuth credentials",
@@ -78,6 +88,7 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     token_source = _build_source(
         file_path=token_file_path,
         aws_secret_id=os.getenv(ENV_AWS_SECRET_ID_KEY_TOKEN),
+        aws_field_secret_ids=_field_secret_ids(ENV_AWS_SECRET_ID_BY_TOKEN_FIELD),
         region=region,
         base64_encoded=base64_encoded,
         label="Key/token credentials",
@@ -101,6 +112,7 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
 def _build_source(
     file_path: Optional[str],
     aws_secret_id: Optional[str],
+    aws_field_secret_ids: Dict[str, str],
     region: Optional[str],
     base64_encoded: bool,
     label: str,
@@ -108,17 +120,48 @@ def _build_source(
     """Return the configured source, preferring AWS Secrets Manager.
 
     None means this method was not configured at all, which is how the caller
-    decides between methods.
+    decides between methods. A single secret wins over one-per-field, being
+    the shape whose rotation is atomic.
     """
+    asm_source: Optional[CredentialsSource] = None
     if aws_secret_id:
-        if file_path:
+        if aws_field_secret_ids:
             logger.warning(
-                f"{label} are configured both as a file and as an AWS Secrets "
-                f"Manager secret; reading them from AWS Secrets Manager"
+                f"{label} are configured both as a single AWS Secrets Manager "
+                f"secret and as one secret per field; reading them from the "
+                f"single secret"
             )
-        return AwsSecretsManagerCredentialsSource(
+        asm_source = AwsSecretsManagerCredentialsSource(
             secret_id=aws_secret_id, region=region, base64_encoded=base64_encoded
         )
+    elif aws_field_secret_ids:
+        asm_source = AwsSecretsManagerCredentialsSource(
+            secret_ids=aws_field_secret_ids,
+            region=region,
+            base64_encoded=base64_encoded,
+        )
+
+    if asm_source:
+        if file_path:
+            logger.warning(
+                f"{label} are configured both as a file and in AWS Secrets "
+                f"Manager; reading them from AWS Secrets Manager"
+            )
+        return asm_source
     if file_path:
         return FileCredentialsSource(file_path=file_path)
     return None
+
+
+def _field_secret_ids(env_by_field: Dict[str, str]) -> Dict[str, str]:
+    """Return the per-field secret ids that are set, keyed by credential field.
+
+    A partially configured set is passed through rather than rejected: the
+    token provider then reports the field it could not fill. The chart rejects
+    it earlier, naming the missing values key.
+    """
+    return {
+        field: secret_id
+        for field, env_name in env_by_field.items()
+        if (secret_id := os.getenv(env_name, "").strip())
+    }
