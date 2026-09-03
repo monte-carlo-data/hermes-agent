@@ -133,6 +133,67 @@ assert_failure() {
   fi
 }
 
+# render_notes <values-file>
+# NOTES.txt is not part of `helm template` output, so notes cases go through a
+# client-side dry-run install instead. Sets NOTES_OUT / NOTES_RC.
+render_notes() {
+  local values_file="$1"
+  set +e
+  NOTES_OUT="$(helm install "${RELEASE_NAME}" "${CHART_DIR}" --dry-run=client \
+    -f "${BASE_VALUES}" -f "${values_file}" 2>&1)"
+  NOTES_RC=$?
+  set -e
+}
+
+# assert_notes <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]...
+# Same contract as assert_success, against the release notes.
+assert_notes() {
+  local name="$1" values_file="$2"
+  shift 2
+  local -a present=()
+  local -a absent=()
+  local mode="present"
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --present) mode="present" ;;
+      --absent) mode="absent" ;;
+      *)
+        if [[ "${mode}" == "present" ]]; then
+          present+=("${arg}")
+        else
+          absent+=("${arg}")
+        fi
+        ;;
+    esac
+  done
+
+  render_notes "${values_file}"
+  if [[ ${NOTES_RC} -ne 0 ]]; then
+    fail "${name}" "dry-run install to succeed" "${NOTES_OUT}"
+    return
+  fi
+
+  local -a problems=()
+  local pattern
+  for pattern in "${present[@]}"; do
+    if ! grep -qF -- "${pattern}" <<<"${NOTES_OUT}"; then
+      problems+=("missing expected substring: ${pattern}")
+    fi
+  done
+  for pattern in "${absent[@]}"; do
+    if grep -qF -- "${pattern}" <<<"${NOTES_OUT}"; then
+      problems+=("found forbidden substring: ${pattern}")
+    fi
+  done
+
+  if [[ ${#problems[@]} -eq 0 ]]; then
+    pass "${name}"
+  else
+    fail "${name}" "$(printf '%s; ' "${problems[@]}")" "${NOTES_OUT}"
+  fi
+}
+
 # lint_and_template <path-to-values-file>
 # Runs `helm lint` and `helm template` against a real environment values
 # file, expecting both to succeed.
@@ -222,7 +283,7 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "key/token via AWS Secrets Manager" "${KEY_TOKEN_ASM}" \
-  --present "MCD_TOKEN_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_KEY_TOKEN" \
   --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
 
 OAUTH_ASM="${TMP_DIR}/oauth_asm.yaml"
@@ -234,7 +295,7 @@ oauthSecret:
     secretId: example-oauth-secret-id
 EOF
 assert_success "OAuth via AWS Secrets Manager" "${OAUTH_ASM}" \
-  --present "MCD_OAUTH_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_OAUTH" \
   --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret"
 
 ASM_WITH_REGION="${TMP_DIR}/asm_with_region.yaml"
@@ -246,7 +307,7 @@ tokenSecret:
     region: us-east-1
 EOF
 assert_success "ASM with a region" "${ASM_WITH_REGION}" \
-  --present "MCD_AWS_SECRETS_MANAGER_REGION"
+  --present "MCD_AWS_SECRET_REGION"
 
 ASM_WITHOUT_REGION="${TMP_DIR}/asm_without_region.yaml"
 cat >"${ASM_WITHOUT_REGION}" <<'EOF'
@@ -256,7 +317,102 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "ASM without a region" "${ASM_WITHOUT_REGION}" \
-  --absent "MCD_AWS_SECRETS_MANAGER_REGION"
+  --absent "MCD_AWS_SECRET_REGION"
+
+# One secret per credential field: one env var each, named after the field.
+KEY_TOKEN_ASM_FIELDS="${TMP_DIR}/key_token_asm_fields.yaml"
+cat >"${KEY_TOKEN_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_success "key/token via one ASM secret per field" "${KEY_TOKEN_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_MCD_ID" "MCD_AWS_SECRET_ID_MCD_TOKEN" \
+    "example-mcd-id-secret" "example-mcd-token-secret" \
+  --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
+
+OAUTH_ASM_FIELDS="${TMP_DIR}/oauth_asm_fields.yaml"
+cat >"${OAUTH_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field" "${OAUTH_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+    "example-client-id-secret" "example-client-secret-secret" \
+  --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret" "kind: ExternalSecret"
+
+ASM_FIELDS_WITH_REGION="${TMP_DIR}/asm_fields_with_region.yaml"
+cat >"${ASM_FIELDS_WITH_REGION}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    region: us-east-1
+EOF
+assert_success "one ASM secret per field, with a region" "${ASM_FIELDS_WITH_REGION}" \
+  --present "MCD_AWS_SECRET_REGION"
+
+ASM_BASE64="${TMP_DIR}/asm_base64.yaml"
+cat >"${ASM_BASE64}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    base64Encoded: true
+EOF
+assert_success "ASM values marked base64-encoded" "${ASM_BASE64}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED"
+
+ASM_BASE64_FIELDS="${TMP_DIR}/asm_base64_fields.yaml"
+cat >"${ASM_BASE64_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    base64Encoded: true
+EOF
+assert_success "per-field ASM values marked base64-encoded" "${ASM_BASE64_FIELDS}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED" "MCD_AWS_SECRET_ID_MCD_ID"
+
+# Decoding is opt-in, so the env var must be absent unless asked for.
+assert_success "ASM without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --absent "MCD_AWS_SECRET_BASE64_ENCODED"
+
+# The release notes are the only place an operator can confirm the flag took
+# effect: Helm ignores an unknown key, so a mistyped `base64Encoded` reads the
+# value as-is and only surfaces later as a parse failure.
+assert_notes "notes name base64-encoded values" "${ASM_BASE64}" \
+  --present "(base64-encoded)"
+
+assert_notes "notes stay quiet without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --present "read from AWS Secrets Manager" \
+  --absent "(base64-encoded)"
+
+assert_notes "notes list every per-field secret" "${OAUTH_ASM_FIELDS}" \
+  --present "example-client-id-secret (client_id)" \
+    "example-client-secret-secret (client_secret)"
+# This shape creates no Kubernetes Secret either, so it must reject the
+# collectors for the same reason.
+ASM_FIELDS_COLLECTORS="${TMP_DIR}/asm_fields_collectors.yaml"
+cat >"${ASM_FIELDS_COLLECTORS}" <<'EOF'
+skipExternalSecrets: true
+metricsCollector:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "collectors + per-field ASM: metrics collector rejected" "${ASM_FIELDS_COLLECTORS}" \
+  "metricsCollector.enabled is true"
 
 MANUAL_KEY_TOKEN="${TMP_DIR}/manual_key_token.yaml"
 cat >"${MANUAL_KEY_TOKEN}" <<'EOF'
@@ -407,6 +563,65 @@ tokenSecret:
 EOF
 assert_failure "tokenSecret.awsSecretsManager with region but no secretId" "${ASM_REGION_NO_SECRET_ID}" \
   "secretId"
+
+ASM_BOTH_SHAPES="${TMP_DIR}/asm_both_shapes.yaml"
+cat >"${ASM_BOTH_SHAPES}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "ASM secretId together with per-field secrets" "${ASM_BOTH_SHAPES}" \
+  "sets both secretId and"
+
+# A half-configured block must not fall back: it still selects its method,
+# and fails naming the missing key.
+ASM_FIELDS_PARTIAL_TOKEN="${TMP_DIR}/asm_fields_partial_token.yaml"
+cat >"${ASM_FIELDS_PARTIAL_TOKEN}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+EOF
+assert_failure "per-field ASM missing mcdTokenSecretId" "${ASM_FIELDS_PARTIAL_TOKEN}" \
+  "is missing mcdTokenSecretId"
+
+ASM_FIELDS_PARTIAL_OAUTH="${TMP_DIR}/asm_fields_partial_oauth.yaml"
+cat >"${ASM_FIELDS_PARTIAL_OAUTH}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_failure "per-field ASM missing clientIdSecretId" "${ASM_FIELDS_PARTIAL_OAUTH}" \
+  "is missing clientIdSecretId"
+
+# No `enabled` either — must still select OAuth rather than silently
+# deploying key/token auth.
+ASM_FIELDS_PARTIAL_NO_ENABLED="${TMP_DIR}/asm_fields_partial_no_enabled.yaml"
+cat >"${ASM_FIELDS_PARTIAL_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+EOF
+assert_failure "per-field ASM missing a key with no oauthSecret.enabled" "${ASM_FIELDS_PARTIAL_NO_ENABLED}" \
+  "is missing clientSecretSecretId"
+
+ASM_FIELDS_WITH_REMOTEREF="${TMP_DIR}/asm_fields_with_remoteref.yaml"
+cat >"${ASM_FIELDS_WITH_REMOTEREF}" <<'EOF'
+tokenSecret:
+  remoteRef:
+    key: example-secret
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "per-field ASM together with remoteRef" "${ASM_FIELDS_WITH_REMOTEREF}" \
+  "one source"
 
 # --- environment values files -------------------------------------------------
 

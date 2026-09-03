@@ -12,7 +12,10 @@ that combination instead.
 */}}
 {{- define "hermes.oauth.enabled" -}}
 {{- with .Values.oauthSecret -}}
-{{- if or .enabled .remoteRef (.awsSecretsManager).secretId -}}
+{{/* Per-field keys checked individually, so a half-configured block still
+     selects OAuth and fails on the missing key rather than falling back to
+     key/token authentication. */}}
+{{- if or .enabled .remoteRef (.awsSecretsManager).secretId (.awsSecretsManager).clientIdSecretId (.awsSecretsManager).clientSecretSecretId -}}
 true
 {{- end -}}
 {{- end -}}
@@ -39,9 +42,32 @@ condition. The three are mutually exclusive by construction: a block with both
 */}}
 {{- define "hermes.auth.source" -}}
 {{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
-{{- if ($block.awsSecretsManager).secretId -}}awsSecretsManager
+{{- if or ($block.awsSecretsManager).secretId (include "hermes.auth.awsFieldSecretIds" .) -}}awsSecretsManager
 {{- else if $block.remoteRef -}}externalSecret
 {{- else -}}k8sSecret
+{{- end -}}
+{{- end -}}
+
+{{/*
+The selected method's credential fields mapped to the secret each is read
+from, as JSON — empty when one secret holds the whole credential, or when
+only some fields are configured (hermes.auth.validate rejects that first).
+
+Chart-internal: the deployment renders one env var per entry, named after the
+field, and NOTES.txt lists them. Field names are the agent's; operators
+configure the friendlier `clientIdSecretId` / `mcdIdSecretId` keys.
+*/}}
+{{- define "hermes.auth.awsFieldSecretIds" -}}
+{{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
+{{- $asm := (ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) $oauth).awsSecretsManager | default dict -}}
+{{- if $oauth -}}
+{{- if and $asm.clientIdSecretId $asm.clientSecretSecretId -}}
+{{- dict "client_id" $asm.clientIdSecretId "client_secret" $asm.clientSecretSecretId | toJson -}}
+{{- end -}}
+{{- else -}}
+{{- if and $asm.mcdIdSecretId $asm.mcdTokenSecretId -}}
+{{- dict "mcd_id" $asm.mcdIdSecretId "mcd_token" $asm.mcdTokenSecretId | toJson -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
@@ -52,6 +78,16 @@ empty lets boto resolve it the usual way.
 {{- define "hermes.auth.awsRegion" -}}
 {{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
 {{- ($block.awsSecretsManager).region | default "" -}}
+{{- end -}}
+
+{{/*
+Whether the selected method's Secrets Manager values are base64-encoded.
+Applies to every secret in the block. Opt-in because base64 text is itself a
+valid secret value; binary secrets need no flag.
+*/}}
+{{- define "hermes.auth.awsBase64Encoded" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- if ($block.awsSecretsManager).base64Encoded -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -92,7 +128,8 @@ install reports success.
 {{- fail "oauthSecret.enabled is false but a credential source is configured under oauthSecret. Remove the oauthSecret block to use key/token authentication, or drop oauthSecret.enabled to use OAuth." -}}
 {{- end -}}
 {{- end -}}
-{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) (((.Values.tokenSecret).awsSecretsManager).secretId)) -}}
+{{- $tokenAsm := (.Values.tokenSecret).awsSecretsManager | default dict -}}
+{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) $tokenAsm.secretId $tokenAsm.mcdIdSecretId $tokenAsm.mcdTokenSecretId) -}}
 {{- fail "oauthSecret and tokenSecret are both configured with a credential source — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
 {{- end -}}
 {{/* The `if $block` is load-bearing, not defensive: an unset block arrives from
@@ -100,11 +137,31 @@ install reports success.
      returning false. */}}
 {{- range $method, $block := dict "oauthSecret" .Values.oauthSecret "tokenSecret" .Values.tokenSecret -}}
 {{- if $block -}}
-{{- if and ($block.remoteRef) (($block.awsSecretsManager).secretId) -}}
+{{- $asm := $block.awsSecretsManager | default dict -}}
+{{/* Named for the owning method's credential fields, so an operator never
+     needs the agent's payload key names. */}}
+{{- $fieldKeys := ternary (list "clientIdSecretId" "clientSecretSecretId") (list "mcdIdSecretId" "mcdTokenSecretId") (eq $method "oauthSecret") -}}
+{{- $setFields := list -}}
+{{- $unsetFields := list -}}
+{{- range $key := $fieldKeys -}}
+{{- if get $asm $key -}}
+{{- $setFields = append $setFields $key -}}
+{{- else -}}
+{{- $unsetFields = append $unsetFields $key -}}
+{{- end -}}
+{{- end -}}
+{{- $hasFields := gt (len $setFields) 0 -}}
+{{- if and $asm.secretId $hasFields -}}
+{{- fail (printf "%s.awsSecretsManager sets both secretId and %s. A credential is read either from one secret holding every field, or from one secret per field — keep secretId, or remove it and keep the per-field keys." $method (join ", " $setFields)) -}}
+{{- end -}}
+{{- if and $hasFields (gt (len $unsetFields) 0) -}}
+{{- fail (printf "%s.awsSecretsManager is missing %s. Every credential field needs its own secret when they are read individually — set it, or use %s.awsSecretsManager.secretId for one secret holding the whole credential." $method (join ", " $unsetFields) $method) -}}
+{{- end -}}
+{{- if and ($block.remoteRef) (or $asm.secretId $hasFields) -}}
 {{- fail (printf "%s sets both remoteRef and awsSecretsManager — a credential comes from one source. Keep remoteRef to sync it with the External Secrets Operator, or awsSecretsManager to have the agent read it directly." $method) -}}
 {{- end -}}
-{{- if and (hasKey $block "awsSecretsManager") (not (($block.awsSecretsManager).secretId)) -}}
-{{- fail (printf "%s.awsSecretsManager is set but %s.awsSecretsManager.secretId is empty. Set it to the name or ARN of the secret, or remove the awsSecretsManager block." $method $method) -}}
+{{- if and (hasKey $block "awsSecretsManager") (not $asm.secretId) (not $hasFields) -}}
+{{- fail (printf "%s.awsSecretsManager is set but names no secret. Set %s.awsSecretsManager.secretId for one secret holding the whole credential, or %s for one secret per field." $method $method (join " and " $fieldKeys)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

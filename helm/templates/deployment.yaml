@@ -87,16 +87,26 @@ spec:
               value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
             {{- end }}
             {{- if eq (include "hermes.auth.source" .) "awsSecretsManager" }}
-            {{- if include "hermes.oauth.enabled" . }}
-            - name: MCD_OAUTH_AWS_SECRET_ID
-              value: {{ .Values.oauthSecret.awsSecretsManager.secretId | quote }}
+            {{- $oauth := eq (include "hermes.auth.method" .) "oauth" }}
+            {{- $fieldSecretIds := include "hermes.auth.awsFieldSecretIds" . }}
+            {{- if $fieldSecretIds }}
+            {{- /* The env var name is the credential field upper-cased, so
+                   adding a field needs no new literal here. */}}
+            {{- range $field, $secretId := ($fieldSecretIds | fromJson) }}
+            - name: MCD_AWS_SECRET_ID_{{ $field | upper }}
+              value: {{ $secretId | quote }}
+            {{- end }}
             {{- else }}
-            - name: MCD_TOKEN_AWS_SECRET_ID
-              value: {{ .Values.tokenSecret.awsSecretsManager.secretId | quote }}
+            - name: {{ ternary "MCD_AWS_SECRET_ID_OAUTH" "MCD_AWS_SECRET_ID_KEY_TOKEN" $oauth }}
+              value: {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId | quote }}
             {{- end }}
             {{- with (include "hermes.auth.awsRegion" .) }}
-            - name: MCD_AWS_SECRETS_MANAGER_REGION
+            - name: MCD_AWS_SECRET_REGION
               value: {{ . | quote }}
+            {{- end }}
+            {{- if include "hermes.auth.awsBase64Encoded" . }}
+            - name: MCD_AWS_SECRET_BASE64_ENCODED
+              value: "true"
             {{- end }}
             {{- end }}
             - name: MCD_IN_PROCESS_LOGS_ENABLED
