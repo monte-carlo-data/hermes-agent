@@ -1,0 +1,52 @@
+{{/*
+  Deliberately free of `lookup`: reading cluster state would make this render
+  differently under `helm template`, `--dry-run`, and the Terraform helm
+  provider's plan phase, and would require `get secrets` on the caller. Naming
+  the secret the release expects is enough. See `hermes.oauth.enabled` in
+  _helpers.tpl for how the method is selected.
+*/}}
+{{- $ns := .Values.namespace | default "mcd-agent" -}}
+{{- $oauth := eq (include "hermes.oauth.enabled" .) "true" -}}
+{{- $secretName := "mcd-agent-token-secret" -}}
+{{- $secretKey := "contents.json" -}}
+{{- if $oauth -}}
+{{- $secretName = "mcd-oauth-secret" -}}
+{{- $secretKey = "credentials.json" -}}
+{{- end -}}
+Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
+
+This release authenticates with {{ if $oauth }}OAuth client credentials{{ else }}a key/token pair{{ end }} and reads them from:
+
+  Secret:  {{ $secretName }} (key: {{ $secretKey }})
+  Payload: {{ if $oauth }}{"client_id": "...", "client_secret": "..."}{{ else }}{"mcd_id": "...", "mcd_token": "..."}{{ end }}
+  Source:  {{ if .Values.skipExternalSecrets }}created manually with kubectl{{ else }}synced by the External Secrets Operator{{ end }}
+
+If that is not the secret you created, the release selected the other
+authentication method. To switch:
+{{ if .Values.skipExternalSecrets }}
+{{- if $oauth }}
+  remove the oauthSecret block from your values file to use key/token
+{{- else }}
+  set `oauthSecret.enabled: true` in your values file to use OAuth
+{{- end }}
+{{- else }}
+{{- if $oauth }}
+  remove the oauthSecret block and set tokenSecret.remoteRef to use key/token
+{{- else }}
+  set `oauthSecret.enabled: true` and point oauthSecret.remoteRef at the OAuth
+  secret, then remove tokenSecret.remoteRef, to use OAuth
+{{- end }}
+{{- end }}
+
+The agent pod stays in ContainerCreating until the secret above exists. It does
+not have to exist before install — the kubelet retries the mount and the pod
+starts on its own once the secret appears.
+
+Verify connectivity to Monte Carlo:
+
+  kubectl exec -n {{ $ns }} deploy/mcd-agent-deployment -- \
+    curl -s -X POST localhost:8080/api/v1/test/reachability
+
+A successful response contains "ok": true. On failure the response reports the
+credential the agent is configured with, which tells you whether the intended
+secret was picked up.

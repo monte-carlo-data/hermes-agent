@@ -9,12 +9,12 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | Deployment | `mcd-agent-deployment` | Always |
 | DaemonSet | `logs-collector` | `logShipping == "fluentd"` |
 | DaemonSet | `metrics-collector` | `metricsCollector.enabled` |
-| Namespace | configurable (default `mcd-agent`) | Always |
+| Namespace | configurable (default `mcd-agent`) | `namespaceCreate` (default `true`) |
 | ServiceAccount | `mcd-agent-service-account` | Always |
 | SecretStore | `mcd-agent-secret-store` | `!skipExternalSecrets` |
 | ExternalSecret | `mcd-agent-token-secret` | `tokenSecret.remoteRef` is set |
 | ExternalSecret | `mcd-oauth-secret` | `oauthSecret.remoteRef` is set |
-| ExternalSecret | `mcd-integrations-secrets` | `!skipExternalSecrets` |
+| ExternalSecret | `mcd-integrations-secrets` | `integrationsSecrets.data` is set |
 | ClusterRole + Binding | `mcd-agent-metrics-reader` | `metricsCollector.enabled` |
 
 ## Quick Start
@@ -131,7 +131,37 @@ The chart is configured via values files. See the example files for each platfor
 | `podSecurityContext` | Pod-level security context | non-root, UID/GID 1000 (see [Pod Security](#pod-security)) |
 | `containerSecurityContext` | Agent container security context | privilege escalation off, all capabilities dropped |
 | `namespace` | Kubernetes namespace | `mcd-agent` |
+| `namespaceCreate` | Let the release create and own the namespace | `true` |
 | `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `2` |
+
+### Namespace Ownership
+
+By default the chart renders the namespace named by `namespace`, so the release owns it and `helm uninstall` removes it.
+
+Helm cannot adopt a namespace created outside Helm. Installing with the default against a namespace made by `kubectl create namespace` fails:
+
+```
+Error: INSTALLATION FAILED: unable to continue with install: Namespace "mcd-agent" in
+namespace "" exists and cannot be imported into the current release: invalid ownership
+metadata; label validation error: missing key "app.kubernetes.io/managed-by" ...
+```
+
+When the namespace is provisioned outside the release — by a platform team, by `kubectl`, or by a Terraform `kubernetes_namespace` resource — set `namespaceCreate: false` instead of hand-labelling the namespace:
+
+```bash
+kubectl create namespace mcd-agent
+helm upgrade --install mcd-agent ./helm -n mcd-agent --set namespaceCreate=false -f values.yaml
+```
+
+The namespace must exist before installing: it holds both the release record and every chart resource. Chart resources are still individually owned by the release either way — only the Namespace object's ownership differs, so with `namespaceCreate: false` the namespace survives `helm uninstall`.
+
+> **Set `namespaceCreate` at install time, not on an existing release.** Helm deletes resources that disappear from a release's manifest between revisions, so switching it from `true` to `false` on a deployed release deletes the namespace — cascading to the agent, its secrets, and the release record itself when the release lives in that same namespace. The upgrade reports success while this happens. To move an existing release onto an externally managed namespace, `helm uninstall` first, then reinstall with `namespaceCreate: false`.
+
+#### Release namespace vs. resource namespace
+
+These are independent. Every chart resource carries an explicit `metadata.namespace` taken from `namespace`, while the release record (`sh.helm.release.v1.<name>.vN`) lives in whatever `-n` points at — `default` when omitted. Installing without `-n` therefore puts the release in `default` and the workloads in `mcd-agent`, where `helm list -n mcd-agent` shows nothing. Pass `-n <namespace>` to keep them together.
+
+`-n` alone cannot bootstrap a namespace the chart is about to create — Helm needs the release namespace to exist before writing the release record — so pair it with `--create-namespace` (Helm stamps its own ownership metadata on a namespace it creates, so the chart's `Namespace` object adopts it cleanly — unlike one made by `kubectl create namespace`) or with `namespaceCreate: false`.
 
 ### Pod Security
 
@@ -218,6 +248,10 @@ When `autoscaling.enabled` is `true`, the Deployment omits `replicas:` so the HP
 
 The chart uses the [External Secrets Operator](https://external-secrets.io/) to sync secrets from cloud secret managers. Configure via `secretStore.provider` with your cloud-specific settings. Set `skipExternalSecrets: true` for local development where secrets are created manually.
 
+Only the authentication secret is required. `mcd-integrations-secrets` is mounted optionally, so no placeholder secret is needed when there are no self-hosted integration credentials — the `mcd-integrations-secrets` ExternalSecret is rendered only when `integrationsSecrets.data` is set.
+
+The authentication secret is mounted non-optionally, so the agent pod stays in `ContainerCreating` until it exists. It does not have to exist before `helm install`: the kubelet retries the mount and the pod starts on its own once the secret appears, with no restart. Two exceptions where it must exist first — `helm install --wait`/`--atomic`, and the Terraform `helm_release` resource, which defaults to `wait = true` with a 300s timeout and fails the apply instead of waiting.
+
 ### Log Shipping
 
 Top-level `logShipping` selects how agent logs reach Monte Carlo. Pick one:
@@ -251,11 +285,29 @@ key/token secret (`mcd-agent-token-secret`). When configured, the agent acquires
 and uses them for all backend communication. The chart uses one authentication method at a time
 — when OAuth is enabled, only the OAuth secret is mounted.
 
+Set `oauthSecret.enabled: true` to use OAuth. `enabled` selects the authentication method; `remoteRef` says where the credentials come from — set it for ExternalSecret deployments, omit it when you create `mcd-oauth-secret` yourself. Keeping the two separate means adding a new credential source later doesn't change how the method is chosen.
+
+```yaml
+# ExternalSecret deployments
+oauthSecret:
+  enabled: true
+  remoteRef:
+    key: <your-oauth-secret-name>
+
+# Manually created Secret (skipExternalSecrets: true)
+oauthSecret:
+  enabled: true
+```
+
 | Property | Description | Default |
 |---|---|---|
-| `oauthSecret.remoteRef` | ExternalSecret remote reference (cloud deployments) | _(unset — OAuth disabled)_ |
-| `oauthSecret.enabled` | Enable OAuth for manual deployments (`skipExternalSecrets: true`) | `false` |
+| `oauthSecret.enabled` | Selects OAuth authentication | _(unset)_ |
+| `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
+
+For backwards compatibility a `remoteRef` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. Two combinations fail at template time rather than silently picking a method: `remoteRef` together with `enabled: false` (contradictory), and `oauthSecret` alongside `tokenSecret.remoteRef` (two methods).
+
+The release prints the secret name, key, and payload shape it expects on install — `helm get notes <release>` retrieves it later. If that isn't the secret you created, the release selected the other authentication method.
 
 **Cloud deployments** (ExternalSecret): Set `oauthSecret.remoteRef` to point to a secret in your
 cloud secret manager containing JSON: `{"client_id": "...", "client_secret": "..."}`. The chart

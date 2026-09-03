@@ -41,16 +41,11 @@ See [minio/README.md](minio/README.md) for more details and a Docker Compose alt
 kubectl create namespace mcd-agent
 ```
 
-The Helm chart expects to own the namespace. Label and annotate it so Helm can adopt it:
+Because the namespace already exists, deploy with `namespaceCreate: false` in step 4 — Helm cannot adopt a namespace it did not create. Alternatively, skip this step and let the chart create and own the namespace — deploy with `-n mcd-agent --create-namespace` and leave `namespaceCreate` at its default `true`, instead of the command shown in step 4.
 
-```bash
-kubectl label namespace mcd-agent app.kubernetes.io/managed-by=Helm
-kubectl annotate namespace mcd-agent meta.helm.sh/release-name=mcd-agent meta.helm.sh/release-namespace=default
-```
+## 3. Create the Agent Token Secret
 
-## 3. Create Secrets
-
-The agent requires two secrets to exist before the Helm chart is deployed.
+Creating it before the chart avoids the agent pod sitting in `ContainerCreating` while it waits for the secret.
 
 ### Agent Token
 
@@ -72,23 +67,19 @@ kubectl create secret generic mcd-agent-token-secret -n mcd-agent \
   --from-file=contents.json=environments/local/secrets/agent-token.json
 ```
 
-### Integrations Secrets
-
-This secret can be empty for basic testing:
-
-```bash
-kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
-  --from-file=environments/local/secrets/empty.json
-```
-
 ## 4. Deploy the Agent with Helm
 
 ```bash
 helm upgrade --install mcd-agent \
   oci://registry-1.docker.io/montecarlodata/pre-release-generic-agent-helm \
   --version 0.0.1-rc227 \
+  -n mcd-agent --set namespaceCreate=false \
   -f ./environments/local/values.yaml
 ```
+
+No integrations secret is needed — `mcd-integrations-secrets` is mounted optionally, so the agent starts without it. See [Adding Secrets for Integrations](#adding-secrets-for-integrations) to add credentials later.
+
+`-n mcd-agent` keeps the release record in the same namespace as the resources; without it the release lands in `default` and `helm list -n mcd-agent` shows nothing.
 
 ## 5. Verify
 
@@ -110,11 +101,10 @@ A successful response contains `"ok": true`.
 
 ## Adding Secrets for Integrations
 
-The `mcd-integrations-secrets` secret created in step 3 starts empty. To test integrations
-locally, replace it with a secret containing the connection details:
+To test integrations locally, create `mcd-integrations-secrets` with the connection details:
 
 ```bash
-kubectl delete secret mcd-integrations-secrets -n mcd-agent
+kubectl delete secret mcd-integrations-secrets -n mcd-agent --ignore-not-found
 kubectl create secret generic mcd-integrations-secrets -n mcd-agent \
   --from-file=<integration>.json=environments/local/secrets/<integration>.json
 kubectl rollout restart deployment/mcd-agent-deployment -n mcd-agent
@@ -129,7 +119,7 @@ To deploy a newer version, update the `--version` flag and the `image.tag` in `v
 ## Tearing Down
 
 ```bash
-helm uninstall mcd-agent
+helm uninstall mcd-agent -n mcd-agent
 kubectl delete namespace mcd-agent
 kubectl delete -f environments/local/minio/k8s.yaml
 ```

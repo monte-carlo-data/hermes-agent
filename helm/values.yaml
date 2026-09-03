@@ -2,6 +2,17 @@
 # Environment-specific values files override these defaults.
 # Logs and metrics endpoints default to container.backendServiceUrl + /api/v1/agent/{logs,metrics}
 
+# Whether the chart creates the namespace named by `namespace`. Set to false
+# when the namespace is provisioned outside the release (a platform team,
+# `kubectl create namespace`, a Terraform `kubernetes_namespace` resource) —
+# Helm cannot adopt a namespace it did not create, and the namespace must then
+# already exist at install time.
+#
+# Set this at install time only: flipping it to false on a deployed release
+# removes the Namespace from the manifest, and Helm then deletes it. See
+# "Namespace Ownership" in helm/README.md.
+namespaceCreate: true
+
 replicaCount: 2
 
 image:
@@ -79,24 +90,45 @@ logShipping: in-process
 inProcessLogs:
   logLevel: "INFO"
 
-# OAuth client_credentials authentication. When configured, the agent
+# OAuth client_credentials authentication. When enabled, the agent
 # authenticates to the Monte Carlo backend via Bearer tokens instead of
 # the key/token secret.
 #
-# remoteRef: ExternalSecret remote reference for cloud deployments (follows
-#   the same pattern as tokenSecret.remoteRef). The ExternalSecret creates
-#   a K8s Secret named `mcd-oauth-secret` with a `credentials.json` key
-#   containing JSON: {"client_id": "...", "client_secret": "..."}
-# enabled: set to true for local/manual deployments (skipExternalSecrets: true)
-#   where the K8s Secret `mcd-oauth-secret` is created manually.
+# enabled: selects OAuth. This is the key that chooses the authentication
+#   method; the keys below only describe where the credentials come from.
+# remoteRef: ExternalSecret remote reference (follows the same pattern as
+#   tokenSecret.remoteRef). The ExternalSecret creates a K8s Secret named
+#   `mcd-oauth-secret` with a `credentials.json` key containing JSON:
+#   {"client_id": "...", "client_secret": "..."}. Omit it when the Secret is
+#   created manually (skipExternalSecrets: true).
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.
+#
+# A remoteRef on its own also selects OAuth, for compatibility with the
+# Terraform modules and older values files. Setting `remoteRef` together with
+# `enabled: false` is contradictory and is rejected at template time.
+#
+# ExternalSecret path (cloud secret manager):
 # oauthSecret:
+#   enabled: true
 #   remoteRef:
 #     key: <secret-name>
-#   tokenEndpoint: ""
-#   enabled: false
+#
+# Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
+# oauthSecret:
+#   enabled: true
+#
+# Integration credentials synced from your cloud secret manager. Each entry
+# becomes a file at /etc/secrets/integrations/<secretKey>. The agent's
+# integrations volume is mounted optionally, so this is only needed when you
+# have self-hosted credentials — the mcd-integrations-secrets ExternalSecret is
+# rendered only when `data` is set.
+# integrationsSecrets:
+#   data:
+#     - secretKey: postgres.json
+#       remoteRef:
+#         key: mcd/integrations/postgres
 
 logsCollector:
   logLevel: "INFO|WARN|WARNING|ERROR|CRITICAL"

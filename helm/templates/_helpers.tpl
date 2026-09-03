@@ -1,22 +1,60 @@
 {{/*
+Whether OAuth authentication is enabled. Either signal selects it: a
+`remoteRef` (the ESO path, where the credential is synced from a cloud secret
+manager) or `enabled: true` (the manual path, where the operator created
+`mcd-oauth-secret` themselves, so there is no remoteRef to key off).
+
+`enabled: false` alongside a `remoteRef` is contradictory rather than an
+override, and resolving it by precedence is how a values file silently gets an
+authentication method its author did not choose. hermes.auth.validate rejects
+that combination instead.
+*/}}
+{{- define "hermes.oauth.enabled" -}}
+{{- if and .Values.oauthSecret (or .Values.oauthSecret.remoteRef .Values.oauthSecret.enabled) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
+Included from the deployment so a misconfigured release fails at template time
+instead of as a backend authentication failure at runtime.
+
+Checks are keyed on the *selected* method rather than on whichever value
+happens to be present. The deployment mounts the secret for the selected
+method non-optionally, so validating anything else lets a release render with a
+mount that no template creates — the pod then waits on it forever while the
+install reports success.
+*/}}
+{{- define "hermes.auth.validate" -}}
+{{- $oauth := include "hermes.oauth.enabled" . -}}
+{{- with .Values.oauthSecret -}}
+{{- if and .remoteRef (hasKey . "enabled") (not .enabled) -}}
+{{- fail "oauthSecret.remoteRef is set but oauthSecret.enabled is false. Remove the oauthSecret block to use key/token authentication, or drop oauthSecret.enabled to use OAuth." -}}
+{{- end -}}
+{{- end -}}
+{{- if and $oauth ((.Values.tokenSecret).remoteRef) -}}
+{{- fail "oauthSecret and tokenSecret.remoteRef are both configured — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
+{{- end -}}
+{{- if and .Values.oauthSecret .Values.oauthSecret.tokenEndpoint (not (hasPrefix "https://" .Values.oauthSecret.tokenEndpoint)) -}}
+{{- fail "oauthSecret.tokenEndpoint must use HTTPS" -}}
+{{- end -}}
+{{- if not .Values.skipExternalSecrets -}}
+{{- if $oauth -}}
+{{- if not ((.Values.oauthSecret).remoteRef) -}}
+{{- fail "OAuth is selected but oauthSecret.remoteRef is not set. External Secrets Operator deployments need a remote reference; set skipExternalSecrets: true when mcd-oauth-secret is created manually." -}}
+{{- end -}}
+{{- else if not ((.Values.tokenSecret).remoteRef) -}}
+{{- fail "Key/token authentication is selected but tokenSecret.remoteRef is not set. Set tokenSecret.remoteRef, or configure oauthSecret to use OAuth, or set skipExternalSecrets: true when mcd-agent-token-secret is created manually." -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Log shipping mode validation. Fails on the legacy two-flag keys (renamed to
 the `logShipping` enum) and rejects unknown enum values. Also rejects
 in-process log levels outside a curated allowlist — DEBUG would surface
 third-party-library content (request bodies, tokens) into shipped logs.
 */}}
-{{/*
-Whether OAuth authentication is enabled. True when oauthSecret.remoteRef is set
-(cloud via ExternalSecret) or skipExternalSecrets is true and oauthSecret.enabled
-is set (manual secret creation).
-*/}}
-{{- define "hermes.oauth.enabled" -}}
-{{- if and .Values.oauthSecret .Values.oauthSecret.remoteRef -}}
-true
-{{- else if and .Values.oauthSecret .Values.oauthSecret.enabled -}}
-true
-{{- end -}}
-{{- end -}}
-
 {{- define "hermes.logShipping.validate" -}}
 {{- if hasKey .Values.logsCollector "enabled" -}}
 {{- fail "logsCollector.enabled has been replaced by the top-level `logShipping` setting. Use `logShipping: fluentd` (was `logsCollector.enabled: true`) or `logShipping: none` (was `logsCollector.enabled: false`, which left the agent with no log shipping). To opt into the new in-process shipper instead, set `logShipping: in-process`. See helm/README.md." -}}
