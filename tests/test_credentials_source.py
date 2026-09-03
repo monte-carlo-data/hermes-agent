@@ -65,6 +65,17 @@ class FileCredentialsSourceTests(TestCase):
             FileCredentialsSource(self._path).read()
         self.assertIn("base64", str(ctx.exception))
 
+    def test_base64_of_a_json_scalar_is_not_reported_as_base64(self):
+        # _parse rejects anything but an object, so pointing at a decode here
+        # would just swap one error for another.
+        for value in (b"12345678", b'"a-bare-token-value"'):
+            with self.subTest(value=value):
+                with open(self._path, "w") as f:
+                    f.write(base64.b64encode(value).decode())
+                with self.assertRaises(CredentialsSourceError) as ctx:
+                    FileCredentialsSource(self._path).read()
+                self.assertNotIn("base64", str(ctx.exception))
+
     def test_non_json_is_not_reported_as_base64(self):
         # The hint has to stay quiet on payloads that merely fail to parse, or
         # it sends every misconfiguration down the wrong path.
@@ -361,6 +372,19 @@ class AwsSecretsManagerEncodingTests(TestCase):
         with self.assertRaises(CredentialsSourceError) as ctx:
             source.read()
         self.assertIn("not valid base64", str(ctx.exception))
+
+    def test_doubly_encoded_value_is_named_as_such(self):
+        # Decoding is already on, so "enable base64 decoding" would tell the
+        # operator to do what they have done; the remedy is the second layer.
+        inner = base64.b64encode(json.dumps(_CREDS).encode()).decode()
+        source = self._source(
+            {"SecretString": base64.b64encode(inner.encode()).decode()},
+            base64_encoded=True,
+        )
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("doubly encoded", str(ctx.exception))
+        self.assertNotIn("enable base64 decoding", str(ctx.exception))
 
     def test_base64_decoding_is_reported(self):
         source = AwsSecretsManagerCredentialsSource(
