@@ -196,14 +196,10 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
 
             try:
                 fetched = self._fetch()
-            except CredentialsSourceError:
-                # Raised by _fetch/_parse itself, meaning the payload is wrong
-                # (binary secret, malformed JSON) rather than the API call
-                # failing. Retrying can't fix a bad payload, so this
-                # propagates immediately instead of being swallowed and
-                # served stale like the transient failures below.
-                raise
             except Exception as ex:
+                # Payload errors (binary secret, malformed JSON) back off too:
+                # the API call succeeds and only parsing fails, so retrying
+                # can't fix it but still costs a call per backend request.
                 self._last_failure = str(ex)
                 self._retry_after = time.monotonic() + RETRY_AFTER_FAILURE_SECONDS
                 return self._serve_stale_or_raise(log=True)
