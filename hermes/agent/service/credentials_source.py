@@ -58,13 +58,16 @@ class CredentialsSourceError(Exception):
     """The credential could not be read, or is not usable as JSON."""
 
 
-def _base64_hint(raw: str) -> str:
-    """Return a hint when `raw` is base64 that decodes to JSON, else "".
+def _base64_hint(raw: str, already_decoded: bool = False) -> str:
+    """Return a hint when `raw` is base64 that decodes to a JSON object, else "".
 
     Hinted rather than decoded on sight: base64 text is a valid string value,
     so decoding anything that looks like it would hide real misconfigurations.
     Worth detecting at all because a deployment whose operators can write
     secrets but not read them back has no other view of what was stored.
+
+    `already_decoded` says the caller has decoded once, which changes the
+    remedy: the value is doubly encoded, not merely encoded.
     """
     candidate = "".join(raw.split())
     # Shorter than this cannot be base64 of a JSON object, and short strings
@@ -72,10 +75,19 @@ def _base64_hint(raw: str) -> str:
     if len(candidate) < 8:
         return ""
     try:
-        decoded = base64.b64decode(candidate, validate=True)
-        json.loads(decoded)
+        decoded = json.loads(base64.b64decode(candidate, validate=True))
     except (binascii.Error, ValueError, UnicodeDecodeError):
         return ""
+    # Only an object is worth pointing at: _parse rejects anything else, so
+    # advising a decode for base64 of a scalar just swaps one error for
+    # another.
+    if not isinstance(decoded, dict):
+        return ""
+    if already_decoded:
+        return (
+            " — the value is still base64 after decoding once, so it looks "
+            "doubly encoded; store it encoded at most once"
+        )
     return (
         " — the value looks like base64-encoded JSON. Store the decoded JSON "
         "instead, or enable base64 decoding for this credential source"
@@ -102,12 +114,13 @@ class CredentialsSource(ABC):
         return {ATTR_NAME_SOURCE: self.source_name}
 
     @staticmethod
-    def _parse(raw: str, origin: str) -> Dict[str, Any]:
+    def _parse(raw: str, origin: str, base64_decoded: bool = False) -> Dict[str, Any]:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             raise CredentialsSourceError(
-                f"Credentials are not valid JSON: {origin}{_base64_hint(raw)}"
+                f"Credentials are not valid JSON: {origin}"
+                f"{_base64_hint(raw, base64_decoded)}"
             )
         if not isinstance(data, dict):
             raise CredentialsSourceError(f"Credentials must be a JSON object: {origin}")
@@ -312,7 +325,11 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         if self._secret_ids:
             return self._fetch_fields()
         raw = self._read_secret(str(self._secret_id))
-        return self._parse(raw, f"AWS Secrets Manager secret {self._secret_id}")
+        return self._parse(
+            raw,
+            f"AWS Secrets Manager secret {self._secret_id}",
+            base64_decoded=self._base64_encoded,
+        )
 
     def _fetch_fields(self) -> Dict[str, Any]:
         values: Dict[str, Any] = {}
