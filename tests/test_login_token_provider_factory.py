@@ -10,17 +10,20 @@ from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProv
 from hermes.agent.service.credentials_source import (
     ATTR_NAME_FILE_PATH,
     ATTR_NAME_REGION,
+    ATTR_NAME_BASE64_ENCODED,
     ATTR_NAME_SECRET_ID,
     SOURCE_AWS_SECRETS_MANAGER,
     SOURCE_FILE,
     ATTR_NAME_SOURCE,
 )
 from hermes.agent.service.login_token_provider_factory import (
-    ENV_AWS_SECRETS_MANAGER_REGION,
-    ENV_OAUTH_AWS_SECRET_ID,
+    ENV_AWS_SECRET_BASE64_ENCODED,
+    ENV_AWS_SECRET_ID_KEY_TOKEN,
+    ENV_AWS_SECRET_ID_OAUTH,
+    ENV_AWS_SECRET_REGION,
     ENV_OAUTH_FILE_PATH,
     ENV_OAUTH_TOKEN_ENDPOINT,
-    ENV_TOKEN_AWS_SECRET_ID,
+    ENV_AWS_SECRET_ID_KEY_TOKEN,
     ENV_TOKEN_FILE_PATH,
     build_login_token_provider,
 )
@@ -33,11 +36,12 @@ _BACKEND = "https://artemis.getmontecarlo.com"
 # only the combination it is about.
 _ALL_ENV = {
     ENV_OAUTH_FILE_PATH: "",
-    ENV_OAUTH_AWS_SECRET_ID: "",
+    ENV_AWS_SECRET_ID_OAUTH: "",
     ENV_OAUTH_TOKEN_ENDPOINT: "",
     ENV_TOKEN_FILE_PATH: "",
-    ENV_TOKEN_AWS_SECRET_ID: "",
-    ENV_AWS_SECRETS_MANAGER_REGION: "",
+    ENV_AWS_SECRET_REGION: "",
+    ENV_AWS_SECRET_BASE64_ENCODED: "",
+    ENV_AWS_SECRET_ID_KEY_TOKEN: "",
 }
 
 
@@ -68,7 +72,7 @@ class BuildLoginTokenProviderTests(TestCase):
         )
 
     def test_token_aws_secret_uses_secrets_manager_source(self):
-        provider = self._build(**{ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token"})
+        provider = self._build(**{ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token"})
         self.assertIsInstance(provider, TokenLoginTokenProvider)
         self.assertEqual("token_aws_secrets_manager", provider.authentication_method)
         self.assertEqual(
@@ -77,6 +81,17 @@ class BuildLoginTokenProviderTests(TestCase):
                 ATTR_NAME_SECRET_ID: "mcd/agent/token",
             },
             provider._credentials_source.describe(),
+        )
+
+    def test_base64_flag_is_passed_to_the_aws_source(self):
+        provider = self._build(
+            **{
+                ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token",
+                ENV_AWS_SECRET_BASE64_ENCODED: "true",
+            }
+        )
+        self.assertEqual(
+            "true", provider._credentials_source.describe()[ATTR_NAME_BASE64_ENCODED]
         )
 
     def test_oauth_file_selected_over_token_file(self):
@@ -98,8 +113,8 @@ class BuildLoginTokenProviderTests(TestCase):
     def test_oauth_aws_secret_selected_over_token_aws_secret(self):
         provider = self._build(
             **{
-                ENV_OAUTH_AWS_SECRET_ID: "mcd/agent/oauth",
-                ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token",
+                ENV_AWS_SECRET_ID_OAUTH: "mcd/agent/oauth",
+                ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token",
             }
         )
         self.assertIsInstance(provider, OAuthLoginTokenProvider)
@@ -112,7 +127,7 @@ class BuildLoginTokenProviderTests(TestCase):
         provider = self._build(
             **{
                 ENV_OAUTH_FILE_PATH: "/etc/secrets/credentials.json",
-                ENV_OAUTH_AWS_SECRET_ID: "mcd/agent/oauth",
+                ENV_AWS_SECRET_ID_OAUTH: "mcd/agent/oauth",
             }
         )
         self.assertEqual(
@@ -124,7 +139,7 @@ class BuildLoginTokenProviderTests(TestCase):
         provider = self._build(
             **{
                 ENV_TOKEN_FILE_PATH: "/etc/secrets/contents.json",
-                ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token",
+                ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token",
             }
         )
         self.assertIsInstance(provider, TokenLoginTokenProvider)
@@ -136,8 +151,8 @@ class BuildLoginTokenProviderTests(TestCase):
     def test_region_is_passed_to_the_aws_source(self):
         provider = self._build(
             **{
-                ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token",
-                ENV_AWS_SECRETS_MANAGER_REGION: "eu-central-1",
+                ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token",
+                ENV_AWS_SECRET_REGION: "eu-central-1",
             }
         )
         self.assertEqual(
@@ -146,13 +161,13 @@ class BuildLoginTokenProviderTests(TestCase):
         )
 
     def test_region_omitted_when_unset(self):
-        provider = self._build(**{ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token"})
+        provider = self._build(**{ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token"})
         self.assertNotIn(ATTR_NAME_REGION, provider._credentials_source.describe())
 
     def test_oauth_token_endpoint_override_is_honoured(self):
         provider = self._build(
             **{
-                ENV_OAUTH_AWS_SECRET_ID: "mcd/agent/oauth",
+                ENV_AWS_SECRET_ID_OAUTH: "mcd/agent/oauth",
                 ENV_OAUTH_TOKEN_ENDPOINT: "https://m2m.example.com/oauth2/token",
             }
         )
@@ -161,7 +176,7 @@ class BuildLoginTokenProviderTests(TestCase):
         )
 
     def test_oauth_endpoint_is_derived_when_not_overridden(self):
-        provider = self._build(**{ENV_OAUTH_AWS_SECRET_ID: "mcd/agent/oauth"})
+        provider = self._build(**{ENV_AWS_SECRET_ID_OAUTH: "mcd/agent/oauth"})
         self.assertEqual(
             "https://m2m.getmontecarlo.com/oauth2/token", provider._token_endpoint
         )
@@ -173,5 +188,5 @@ class BuildLoginTokenProviderTests(TestCase):
         with patch(
             "apollo.integrations.aws.asm_proxy_client.SecretsManagerProxyClient"
         ) as mock_client:
-            self._build(**{ENV_TOKEN_AWS_SECRET_ID: "mcd/agent/token"})
+            self._build(**{ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token"})
             mock_client.assert_not_called()

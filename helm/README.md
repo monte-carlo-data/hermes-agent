@@ -302,6 +302,29 @@ metricsCollector:
   enabled: false
 ```
 
+#### How the Payload Is Stored
+
+Plain JSON in `SecretString` is the default. Binary secrets — `--secret-binary`, or Terraform's `secret_binary` — are read as UTF-8 with no extra configuration.
+
+Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block:
+
+```yaml
+tokenSecret:
+  awsSecretsManager:
+    secretId: mcd/agent/token
+    base64Encoded: true
+```
+
+Decoding is never automatic: without the flag an encoded payload fails with `Credentials are not valid JSON`. The agent distinguishes each way a payload can be unusable, which is the only diagnostic available where operators can write secrets but not read them back:
+
+| Error | Cause |
+|---|---|
+| `Secret X exists but has no value yet` | Created, not yet populated |
+| `not valid JSON … looks like base64-encoded JSON` | Encoded payload, often a copied `kubectl get secret -o yaml` value or a stray `base64encode(...)` on Terraform's `secret_string` |
+| `not valid JSON` with no base64 note | A bare value, or malformed JSON |
+| `Secret X is configured as base64-encoded but its value is not valid base64 text` | Flag set against a plain payload |
+| `neither a string nor a binary value` | Neither field populated |
+
 Set `skipExternalSecrets: true` unless ESO is also installed for another reason (e.g. syncing integration credentials): with only `awsSecretsManager` configured, nothing needs the `SecretStore` the chart otherwise renders, and on a cluster with no ESO the `SecretStore` CRD doesn't exist, so `helm install` fails with `no matches for kind "SecretStore"`. Leave `skipExternalSecrets` unset only when you also want ESO for integration credentials, and configure `secretStore` in that case. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.
 
 **The metrics and logs collectors are incompatible with this source.** Both read `mcd_id`/`mcd_token` out of the `mcd-agent-token-secret` Secret with an init container, and that Secret is not created when the agent reads its own credential from a secret manager — so their pods would sit in `ContainerCreating` on every node while the install reported success. The chart rejects the combination at template time rather than rendering it. Set `metricsCollector.enabled: false` and leave `logShipping` at its default `in-process` (the agent ships its own logs, so nothing is lost there), or use a `remoteRef` credential source if you need the collectors.
@@ -395,6 +418,7 @@ oauthSecret:
 | `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
 | `oauthSecret.awsSecretsManager.secretId` | AWS Secrets Manager secret the agent reads directly — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) | _(unset)_ |
 | `oauthSecret.awsSecretsManager.region` | Optional region override for the above | _(unset)_ |
+| `oauthSecret.awsSecretsManager.base64Encoded` | Decode every secret in this block as base64 before use — see [How the Payload Is Stored](#how-the-payload-is-stored) | `false` |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
 
 For backwards compatibility a `remoteRef` or `awsSecretsManager` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. The following combinations fail at template time rather than silently picking a method or a source:
@@ -446,7 +470,7 @@ services:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
 
-On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_OAUTH_AWS_SECRET_ID` (or `MCD_TOKEN_AWS_SECRET_ID`, plus an optional `MCD_AWS_SECRETS_MANAGER_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private

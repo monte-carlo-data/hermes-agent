@@ -55,6 +55,16 @@ empty lets boto resolve it the usual way.
 {{- end -}}
 
 {{/*
+Whether the selected method's Secrets Manager values are base64-encoded.
+Applies to every secret in the block. Opt-in because base64 text is itself a
+valid secret value; binary secrets need no flag.
+*/}}
+{{- define "hermes.auth.awsBase64Encoded" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- if ($block.awsSecretsManager).base64Encoded -}}true{{- end -}}
+{{- end -}}
+
+{{/*
 The Kubernetes Secret the selected method's credential is read from, its key,
 and its mount path. Defined once because the same three strings otherwise
 appear across the deployment, both ExternalSecret templates, the collectors,

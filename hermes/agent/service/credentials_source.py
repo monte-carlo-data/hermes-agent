@@ -1,30 +1,23 @@
 """Sources the agent's own backend credentials, independent of auth method.
 
-Both authentication methods need the same thing — a JSON object holding a
-credential — and differ only in which keys they expect. Separating *where* the
-credential comes from lets a new source be added without touching either token
-provider.
+Both authentication methods want a JSON object holding a credential and differ
+only in which keys they expect, so separating *where* it comes from lets a new
+source be added without touching either token provider.
 
 The file source covers the Kubernetes Secret and Docker bind-mount cases. The
-AWS Secrets Manager source removes the Kubernetes Secret from the picture
-entirely: the agent reads the credential itself using the pod's own AWS
-identity, so a deployment that cannot use the External Secrets Operator does
-not have to materialize the credential in the cluster at all. That is the same
-mechanism the agent already uses to read self-hosted *integration* credentials
-from AWS Secrets Manager (`AwsSecretsManagerCredentialsService`) — this
-applies it to the agent's own credential.
+AWS Secrets Manager source reads the credential with the pod's own AWS
+identity, so a deployment without the External Secrets Operator need not
+materialize it in the cluster at all.
 
-A reviewer proposed replacing this module with agent-common's
-`apollo.credentials` layer instead. That was declined: `apollo.credentials` is
-shaped for self-hosted integration credentials, where the credentials dict
-doubles as both the resolution parameters and the cache identity (its cache
-key is a sha256 of that dict minus `connect_args`), so a change made there for
-that use case could silently alter behaviour here. Its cache also documents
-having no single-flight, justified by a "one first call, then warm cache"
-traffic pattern that does not hold for a credential read on every backend
-request, and it has no serve-stale-on-failure.
+Not built on agent-common's `apollo.credentials`, which is shaped for
+self-hosted integration credentials: its credentials dict doubles as both
+resolution parameters and cache identity, its cache documents having no
+single-flight, and it has no serve-stale-on-failure — none of which suit a
+credential read on every backend request.
 """
 
+import base64
+import binascii
 import json
 import logging
 import threading
@@ -40,35 +33,52 @@ ATTR_NAME_SOURCE = "credentials_source"
 ATTR_NAME_FILE_PATH = "credentials_file_path"
 ATTR_NAME_SECRET_ID = "credentials_secret_id"
 ATTR_NAME_REGION = "credentials_region"
+ATTR_NAME_BASE64_ENCODED = "credentials_base64_encoded"
 
 SOURCE_FILE = "file"
 SOURCE_AWS_SECRETS_MANAGER = "aws_secrets_manager"
 
-# A secret manager read costs a network round trip, and the key/token provider
-# reads its credential on every request to the backend. Without a cache that is
-# one API call per operation. Fifteen minutes bounds how long a rotated
-# credential can go unnoticed while staying well inside the read quotas — for
-# comparison, the External Secrets Operator path this replaces defaults to
-# refreshing hourly.
+# The key/token provider reads its credential on every backend request, so
+# without a cache that is one API call per operation. Fifteen minutes bounds
+# rotation lag — the ESO path this replaces refreshes hourly.
 DEFAULT_CACHE_TTL_SECONDS = 900
 
-# After a failed read, wait before trying again. Without this the entry stays
-# stale and every subsequent read re-attempts — one API call per backend
-# request, against an API that is already failing. Well under the TTL so a
-# rotated credential is still picked up promptly.
+# Wait this long after a failed read before trying again, so a failing API
+# isn't hit once per backend request. Well under the TTL.
 RETRY_AFTER_FAILURE_SECONDS = 60
 
-# Ceiling on how long a cached credential is served after its last successful
-# fetch, even while every refresh keeps failing. Without this, an operator who
-# detaches the pod's IAM policy to contain a suspected compromise finds the
-# agent keeps authenticating for the life of the pod — IAM revocation stops
-# being the lever they'd assume it is. A small multiple of the TTL bounds that
-# window while still riding out a sustained transient outage.
+# Ceiling on serving a cached credential while refreshes keep failing. Without
+# it, detaching the pod's IAM policy to contain a compromise would not stop the
+# agent for the life of the pod.
 DEFAULT_MAX_STALE_SECONDS = 3600
 
 
 class CredentialsSourceError(Exception):
     """The credential could not be read, or is not usable as JSON."""
+
+
+def _base64_hint(raw: str) -> str:
+    """Return a hint when `raw` is base64 that decodes to JSON, else "".
+
+    Hinted rather than decoded on sight: base64 text is a valid string value,
+    so decoding anything that looks like it would hide real misconfigurations.
+    Worth detecting at all because a deployment whose operators can write
+    secrets but not read them back has no other view of what was stored.
+    """
+    candidate = "".join(raw.split())
+    # Shorter than this cannot be base64 of a JSON object, and short strings
+    # ("null", "true") are valid base64 alphabet often enough to mislead.
+    if len(candidate) < 8:
+        return ""
+    try:
+        decoded = base64.b64decode(candidate, validate=True)
+        json.loads(decoded)
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return ""
+    return (
+        " — the value looks like base64-encoded JSON. Store the decoded JSON "
+        "instead, or enable base64 decoding for this credential source"
+    )
 
 
 class CredentialsSource(ABC):
@@ -95,7 +105,9 @@ class CredentialsSource(ABC):
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
-            raise CredentialsSourceError(f"Credentials are not valid JSON: {origin}")
+            raise CredentialsSourceError(
+                f"Credentials are not valid JSON: {origin}{_base64_hint(raw)}"
+            )
         if not isinstance(data, dict):
             raise CredentialsSourceError(f"Credentials must be a JSON object: {origin}")
         return data
@@ -115,9 +127,8 @@ class FileCredentialsSource(CredentialsSource):
 
         Exposed because the factory hands the key/token file case to
         agent-common's ``FileLoginTokenProvider``, which takes a path rather
-        than a source — reading it back off the resolved source keeps the
-        source-precedence rule in one place instead of re-reading the
-        environment at the construction site.
+        than a source; reading it back off the resolved source keeps source
+        precedence in one place.
         """
         return self._file_path
 
@@ -134,9 +145,8 @@ class FileCredentialsSource(CredentialsSource):
                 f"Cannot read credentials file (permission denied): {self._file_path}"
             )
         except IsADirectoryError:
-            # A bind mount whose host file is missing leaves a directory at the
-            # container path, which is a misconfigured mount rather than a
-            # missing credential — worth distinguishing in the message.
+            # A bind mount whose host file is missing leaves a directory at
+            # the container path — a broken mount, not a missing credential.
             raise CredentialsSourceError(
                 f"Credentials path is a directory, not a file: {self._file_path}"
             )
@@ -166,11 +176,13 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         self,
         secret_id: str,
         region: Optional[str] = None,
+        base64_encoded: bool = False,
         cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
         max_stale_seconds: float = DEFAULT_MAX_STALE_SECONDS,
     ):
         self._secret_id = secret_id
         self._region = region
+        self._base64_encoded = base64_encoded
         self._cache_ttl_seconds = cache_ttl_seconds
         self._max_stale_seconds = max_stale_seconds
         self._lock = threading.Lock()
@@ -250,6 +262,8 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         described = {**super().describe(), ATTR_NAME_SECRET_ID: self._secret_id}
         if self._region:
             described[ATTR_NAME_REGION] = self._region
+        if self._base64_encoded:
+            described[ATTR_NAME_BASE64_ENCODED] = "true"
         return described
 
     def _is_stale(self) -> bool:
@@ -262,26 +276,56 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         return time.monotonic() < self._retry_after
 
     def _fetch(self) -> Dict[str, Any]:
-        # Runs under self._lock (see read()), which is what makes single-
-        # flight refresh possible: only one thread ever has a Secrets Manager
-        # call in flight, and every other reader blocks on the lock and then
-        # gets the value that call produced, instead of each firing its own
-        # call. Moving this call outside the lock would remove that
-        # serialization and defeat the point of caching with a long TTL.
-        #
-        # get_secret_string() -> SecretsManagerProxyClient ->
-        # BaseAwsProxyClient.create_boto_client() calls session.client(...)
-        # with no botocore.config.Config and no way to pass kwargs through to
-        # it, so connect/read timeouts are botocore's 60s defaults — a single
-        # slow call can hold this lock for minutes. Bounding that needs a
-        # change in agent-common (apollo), not here.
-        raw = self._get_client().get_secret_string(self._secret_id)
-        if not raw:
+        """Return the credential, however the secret happens to store it.
+
+        Runs under `self._lock`, which single-flights the refresh — pinned by
+        test_concurrent_reads_single_flight_the_fetch. Reaches past
+        get_secret_string(), which discards SecretBinary, so one call carries
+        both fields. Timeouts are botocore's 60s defaults, so a slow call holds
+        the lock for minutes; bounding that needs an agent-common change.
+        """
+        response = self._get_client().wrapped_client.get_secret_value(
+            SecretId=self._secret_id
+        )
+        raw = response.get("SecretString")
+        if raw is None:
+            raw = self._decode_binary(response, self._secret_id)
+        # Kept distinct from the cases above: a secret created by one tool and
+        # populated by another is empty until the second runs, and calling
+        # that a missing or binary value misdirects.
+        if not raw.strip():
             raise CredentialsSourceError(
-                f"Secret {self._secret_id} has no string value — a binary secret "
-                f"cannot hold agent credentials"
+                f"Secret {self._secret_id} exists but has no value yet"
             )
+        if self._base64_encoded:
+            raw = self._decode_base64(raw, self._secret_id)
         return self._parse(raw, f"AWS Secrets Manager secret {self._secret_id}")
+
+    @staticmethod
+    def _decode_binary(response: Dict[str, Any], secret_id: str) -> str:
+        """Return the response's SecretBinary payload, decoded as UTF-8."""
+        binary = response.get("SecretBinary")
+        if binary is None:
+            raise CredentialsSourceError(
+                f"Secret {secret_id} has neither a string nor a binary value"
+            )
+        try:
+            return binary.decode("utf-8")
+        except (AttributeError, UnicodeDecodeError):
+            raise CredentialsSourceError(
+                f"Secret {secret_id} holds binary data that is not UTF-8 text, "
+                f"so it cannot hold agent credentials"
+            )
+
+    @staticmethod
+    def _decode_base64(raw: str, secret_id: str) -> str:
+        try:
+            return base64.b64decode("".join(raw.split()), validate=True).decode("utf-8")
+        except (binascii.Error, ValueError, UnicodeDecodeError):
+            raise CredentialsSourceError(
+                f"Secret {secret_id} is configured as base64-encoded but its "
+                f"value is not valid base64 text"
+            )
 
     def _get_client(self):
         if self._client is None:

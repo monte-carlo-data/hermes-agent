@@ -7,7 +7,11 @@ orbs:
 defaults:
   - &install_helm_client
     helm/install_helm_client:
-      version: 3.19.5
+      # 4.x for `helm install --dry-run=client`, which render.sh uses to render
+      # NOTES.txt: `helm template` excludes it, and 3.19 still reaches for the
+      # cluster's version even in client mode, so the notes cases cannot pass
+      # on an agent with no kubeconfig.
+      version: 4.2.3
 
 commands:
   verify-version-in-docker-image:

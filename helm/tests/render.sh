@@ -133,6 +133,67 @@ assert_failure() {
   fi
 }
 
+# render_notes <values-file>
+# NOTES.txt is not part of `helm template` output, so notes cases go through a
+# client-side dry-run install instead. Sets NOTES_OUT / NOTES_RC.
+render_notes() {
+  local values_file="$1"
+  set +e
+  NOTES_OUT="$(helm install "${RELEASE_NAME}" "${CHART_DIR}" --dry-run=client \
+    -f "${BASE_VALUES}" -f "${values_file}" 2>&1)"
+  NOTES_RC=$?
+  set -e
+}
+
+# assert_notes <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]...
+# Same contract as assert_success, against the release notes.
+assert_notes() {
+  local name="$1" values_file="$2"
+  shift 2
+  local -a present=()
+  local -a absent=()
+  local mode="present"
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --present) mode="present" ;;
+      --absent) mode="absent" ;;
+      *)
+        if [[ "${mode}" == "present" ]]; then
+          present+=("${arg}")
+        else
+          absent+=("${arg}")
+        fi
+        ;;
+    esac
+  done
+
+  render_notes "${values_file}"
+  if [[ ${NOTES_RC} -ne 0 ]]; then
+    fail "${name}" "dry-run install to succeed" "${NOTES_OUT}"
+    return
+  fi
+
+  local -a problems=()
+  local pattern
+  for pattern in "${present[@]}"; do
+    if ! grep -qF -- "${pattern}" <<<"${NOTES_OUT}"; then
+      problems+=("missing expected substring: ${pattern}")
+    fi
+  done
+  for pattern in "${absent[@]}"; do
+    if grep -qF -- "${pattern}" <<<"${NOTES_OUT}"; then
+      problems+=("found forbidden substring: ${pattern}")
+    fi
+  done
+
+  if [[ ${#problems[@]} -eq 0 ]]; then
+    pass "${name}"
+  else
+    fail "${name}" "$(printf '%s; ' "${problems[@]}")" "${NOTES_OUT}"
+  fi
+}
+
 # lint_and_template <path-to-values-file>
 # Runs `helm lint` and `helm template` against a real environment values
 # file, expecting both to succeed.
@@ -222,7 +283,7 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "key/token via AWS Secrets Manager" "${KEY_TOKEN_ASM}" \
-  --present "MCD_TOKEN_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_KEY_TOKEN" \
   --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
 
 OAUTH_ASM="${TMP_DIR}/oauth_asm.yaml"
@@ -234,7 +295,7 @@ oauthSecret:
     secretId: example-oauth-secret-id
 EOF
 assert_success "OAuth via AWS Secrets Manager" "${OAUTH_ASM}" \
-  --present "MCD_OAUTH_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_OAUTH" \
   --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret"
 
 ASM_WITH_REGION="${TMP_DIR}/asm_with_region.yaml"
@@ -246,7 +307,7 @@ tokenSecret:
     region: us-east-1
 EOF
 assert_success "ASM with a region" "${ASM_WITH_REGION}" \
-  --present "MCD_AWS_SECRETS_MANAGER_REGION"
+  --present "MCD_AWS_SECRET_REGION"
 
 ASM_WITHOUT_REGION="${TMP_DIR}/asm_without_region.yaml"
 cat >"${ASM_WITHOUT_REGION}" <<'EOF'
@@ -256,7 +317,32 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "ASM without a region" "${ASM_WITHOUT_REGION}" \
-  --absent "MCD_AWS_SECRETS_MANAGER_REGION"
+  --absent "MCD_AWS_SECRET_REGION"
+
+ASM_BASE64="${TMP_DIR}/asm_base64.yaml"
+cat >"${ASM_BASE64}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    base64Encoded: true
+EOF
+assert_success "ASM values marked base64-encoded" "${ASM_BASE64}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED"
+
+# Decoding is opt-in, so the env var must be absent unless asked for.
+assert_success "ASM without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --absent "MCD_AWS_SECRET_BASE64_ENCODED"
+
+# The release notes are the only place an operator can confirm the flag took
+# effect: Helm ignores an unknown key, so a mistyped `base64Encoded` reads the
+# value as-is and only surfaces later as a parse failure.
+assert_notes "notes name base64-encoded values" "${ASM_BASE64}" \
+  --present "(base64-encoded)"
+
+assert_notes "notes stay quiet without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --present "read from AWS Secrets Manager" \
+  --absent "(base64-encoded)"
 
 MANUAL_KEY_TOKEN="${TMP_DIR}/manual_key_token.yaml"
 cat >"${MANUAL_KEY_TOKEN}" <<'EOF'

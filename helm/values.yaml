@@ -129,6 +129,10 @@ inProcessLogs:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
 #
+# Secrets stored as binary are read without any extra configuration. Values
+# that hold base64-encoded content need `base64Encoded: true`, which applies to
+# every secret in the block. See helm/README.md.
+#
 # Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
 # oauthSecret:
 #   enabled: true

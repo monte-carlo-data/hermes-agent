@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import tempfile
@@ -8,6 +9,7 @@ from unittest.mock import Mock, patch
 from apollo.integrations.aws.asm_proxy_client import SecretsManagerProxyClient
 
 from hermes.agent.service.credentials_source import (
+    ATTR_NAME_BASE64_ENCODED,
     ATTR_NAME_FILE_PATH,
     ATTR_NAME_REGION,
     ATTR_NAME_SECRET_ID,
@@ -54,6 +56,26 @@ class FileCredentialsSourceTests(TestCase):
         with self.assertRaises(CredentialsSourceError):
             FileCredentialsSource(self._path).read()
 
+    def test_base64_encoded_json_is_named_as_such(self):
+        # Operators who can write secrets but not read them back have no
+        # other view of this: the only symptom is a parse failure.
+        with open(self._path, "w") as f:
+            f.write(base64.b64encode(json.dumps(_CREDS).encode()).decode())
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            FileCredentialsSource(self._path).read()
+        self.assertIn("base64", str(ctx.exception))
+
+    def test_non_json_is_not_reported_as_base64(self):
+        # The hint has to stay quiet on payloads that merely fail to parse, or
+        # it sends every misconfiguration down the wrong path.
+        for payload in ("not json", "bm90IGpzb24gYXQgYWxs", "{oops:", "{}{}"):
+            with self.subTest(payload=payload):
+                with open(self._path, "w") as f:
+                    f.write(payload)
+                with self.assertRaises(CredentialsSourceError) as ctx:
+                    FileCredentialsSource(self._path).read()
+                self.assertNotIn("base64", str(ctx.exception))
+
     def test_json_scalar_is_rejected(self):
         with open(self._path, "w") as f:
             f.write('"a string"')
@@ -80,21 +102,35 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
 
     @staticmethod
     def _client(*side_effects):
+        """Proxy-client mock returning each value from get_secret_value.
+
+        A plain string (or None) becomes a SecretString response; pass a dict
+        to control the whole response, or an exception to have it raised.
+        """
         client = Mock(spec=SecretsManagerProxyClient)
-        client.get_secret_string.side_effect = side_effects
+        client.wrapped_client.get_secret_value.side_effect = [
+            (
+                value
+                if isinstance(value, (dict, BaseException))
+                else {"SecretString": value}
+            )
+            for value in side_effects
+        ]
         return client
 
     def test_reads_and_parses_secret(self):
         client = self._client(json.dumps(_CREDS))
         self.assertEqual(_CREDS, self._source(client).read())
-        client.get_secret_string.assert_called_once_with("mcd/agent")
+        client.wrapped_client.get_secret_value.assert_called_once_with(
+            SecretId="mcd/agent"
+        )
 
     def test_second_read_inside_ttl_is_served_from_cache(self):
         client = self._client(json.dumps(_CREDS))
         source = self._source(client)
         source.read()
         source.read()
-        self.assertEqual(1, client.get_secret_string.call_count)
+        self.assertEqual(1, client.wrapped_client.get_secret_value.call_count)
 
     def test_read_after_ttl_expiry_refetches(self):
         rotated = {"client_id": "rotated", "client_secret": "rotated-secret"}
@@ -102,7 +138,7 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
         source = self._source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         self.assertEqual(rotated, source.read())
-        self.assertEqual(2, client.get_secret_string.call_count)
+        self.assertEqual(2, client.wrapped_client.get_secret_value.call_count)
 
     def test_refresh_failure_serves_cached_value(self):
         client = self._client(json.dumps(_CREDS), RuntimeError("throttled"))
@@ -117,11 +153,6 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
             source.read()
         self.assertIn("mcd/agent", str(ctx.exception))
         self.assertIn("access denied", str(ctx.exception))
-
-    def test_binary_secret_raises(self):
-        source = self._source(self._client(None))
-        with self.assertRaises(CredentialsSourceError):
-            source.read()
 
     def test_invalid_json_raises(self):
         source = self._source(self._client("not json"))
@@ -150,7 +181,9 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
         autospec=True,
     )
     def test_client_is_built_lazily_and_reused(self, mock_client_cls):
-        mock_client_cls.return_value.get_secret_string.return_value = json.dumps(_CREDS)
+        mock_client_cls.return_value.wrapped_client.get_secret_value.return_value = {
+            "SecretString": json.dumps(_CREDS)
+        }
         source = AwsSecretsManagerCredentialsSource(
             secret_id="mcd/agent", region="us-west-2", cache_ttl_seconds=0
         )
@@ -173,15 +206,15 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
         call_count = 0
         count_lock = threading.Lock()
 
-        def slow_get_secret_string(secret_id):
+        def slow_get_secret_value(**kwargs):
             nonlocal call_count
             with count_lock:
                 call_count += 1
             release.wait(timeout=5)
-            return json.dumps(_CREDS)
+            return {"SecretString": json.dumps(_CREDS)}
 
         client = Mock(spec=SecretsManagerProxyClient)
-        client.get_secret_string.side_effect = slow_get_secret_string
+        client.wrapped_client.get_secret_value.side_effect = slow_get_secret_value
         source = self._source(client)
 
         results = []
@@ -212,8 +245,20 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
 
     @staticmethod
     def _client(*side_effects):
+        """Proxy-client mock returning each value from get_secret_value.
+
+        A plain string (or None) becomes a SecretString response; pass a dict
+        to control the whole response, or an exception to have it raised.
+        """
         client = Mock(spec=SecretsManagerProxyClient)
-        client.get_secret_string.side_effect = side_effects
+        client.wrapped_client.get_secret_value.side_effect = [
+            (
+                value
+                if isinstance(value, (dict, BaseException))
+                else {"SecretString": value}
+            )
+            for value in side_effects
+        ]
         return client
 
     def _source(self, client, **kwargs):
@@ -231,7 +276,7 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
 
         # One successful fetch plus at most one retry: the failure must open a
         # backoff window rather than being re-attempted per read.
-        self.assertLessEqual(client.get_secret_string.call_count, 2)
+        self.assertLessEqual(client.wrapped_client.get_secret_value.call_count, 2)
 
     def test_sustained_failure_from_cold_cache_backs_off(self):
         client = self._client(*[RuntimeError("access denied")] * 20)
@@ -243,7 +288,7 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
 
         # Nothing is cached, so read() must keep raising — but it must not
         # hammer the API once per call.
-        self.assertLessEqual(client.get_secret_string.call_count, 2)
+        self.assertLessEqual(client.wrapped_client.get_secret_value.call_count, 2)
 
     def test_unusable_payload_backs_off(self):
         # A malformed payload is the case where the GetSecretValue call itself
@@ -257,7 +302,7 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
             with self.assertRaises(CredentialsSourceError):
                 source.read()
 
-        self.assertLessEqual(client.get_secret_string.call_count, 2)
+        self.assertLessEqual(client.wrapped_client.get_secret_value.call_count, 2)
 
     def test_unusable_payload_serves_cached_value(self):
         # Rotating a valid secret to a malformed one must not take the agent
@@ -267,3 +312,62 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         source = self._source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         self.assertEqual(_CREDS, source.read())
+
+
+class AwsSecretsManagerEncodingTests(TestCase):
+    """How the payload is stored: SecretString, SecretBinary, or base64 text."""
+
+    @staticmethod
+    def _source(response, **kwargs):
+        source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent", **kwargs)
+        client = Mock(spec=SecretsManagerProxyClient)
+        client.wrapped_client.get_secret_value.return_value = response
+        source._client = client
+        return source
+
+    def test_binary_secret_is_read_without_a_flag(self):
+        # --secret-binary stores valid UTF-8 JSON, and string and binary are
+        # separate fields of one response, so no flag is needed.
+        source = self._source({"SecretBinary": json.dumps(_CREDS).encode()})
+        self.assertEqual(_CREDS, source.read())
+
+    def test_binary_and_string_are_read_in_one_api_call(self):
+        source = self._source({"SecretBinary": json.dumps(_CREDS).encode()})
+        source.read()
+        self.assertEqual(1, source._client.wrapped_client.get_secret_value.call_count)
+
+    def test_binary_secret_that_is_not_utf8_raises(self):
+        source = self._source({"SecretBinary": bytes([0xFF, 0xFE, 0x00])})
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("not UTF-8", str(ctx.exception))
+
+    def test_base64_encoded_secret_is_decoded_when_enabled(self):
+        encoded = base64.b64encode(json.dumps(_CREDS).encode()).decode()
+        source = self._source({"SecretString": encoded}, base64_encoded=True)
+        self.assertEqual(_CREDS, source.read())
+
+    def test_base64_decoding_is_opt_in(self):
+        # The same payload must fail without the flag: decoding on sight
+        # would accept a wrong value that happens to be valid base64.
+        encoded = base64.b64encode(json.dumps(_CREDS).encode()).decode()
+        source = self._source({"SecretString": encoded})
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("base64", str(ctx.exception))
+
+    def test_non_base64_value_with_decoding_enabled_raises(self):
+        source = self._source({"SecretString": "{not base64}"}, base64_encoded=True)
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("not valid base64", str(ctx.exception))
+
+    def test_base64_decoding_is_reported(self):
+        source = AwsSecretsManagerCredentialsSource(
+            secret_id="mcd/agent", base64_encoded=True
+        )
+        self.assertEqual("true", source.describe()[ATTR_NAME_BASE64_ENCODED])
+
+    def test_base64_decoding_is_absent_from_the_description_when_off(self):
+        source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent")
+        self.assertNotIn(ATTR_NAME_BASE64_ENCODED, source.describe())
