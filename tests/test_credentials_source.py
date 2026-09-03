@@ -244,3 +244,26 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         # Nothing is cached, so read() must keep raising — but it must not
         # hammer the API once per call.
         self.assertLessEqual(client.get_secret_string.call_count, 2)
+
+    def test_unusable_payload_backs_off(self):
+        # A malformed payload is the case where the GetSecretValue call itself
+        # succeeds, so "retrying can't fix it" is not a reason to skip the
+        # backoff window — without one, every backend request pays for a real
+        # API call to re-discover the same bad value.
+        client = self._client(*["not json"] * 20)
+        source = self._source(client)
+
+        for _ in range(20):
+            with self.assertRaises(CredentialsSourceError):
+                source.read()
+
+        self.assertLessEqual(client.get_secret_string.call_count, 2)
+
+    def test_unusable_payload_serves_cached_value(self):
+        # Rotating a valid secret to a malformed one must not take the agent
+        # down: the cached credential is still accepted by the backend until
+        # it is actually revoked.
+        client = self._client(json.dumps(_CREDS), "not json")
+        source = self._source(client, cache_ttl_seconds=0)
+        self.assertEqual(_CREDS, source.read())
+        self.assertEqual(_CREDS, source.read())
