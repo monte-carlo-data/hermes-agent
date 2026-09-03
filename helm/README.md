@@ -312,7 +312,7 @@ Container CPU and memory metrics are the only thing given up. If you need them a
 
 **IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret. That is a different principal from the one the `secretStore` uses — with ESO it is the External Secrets Operator that reads the secret, so an existing deployment grants the permission to ESO rather than to the agent.
 
-The permission policy is the same either way. Scope `Resource` to the single secret, not a prefix — the section above shows self-hosted integration credentials commonly read through the same pod identity, so a wildcard like `mcd/agent/*` also grants the agent read access to every other secret an operator organizes under that prefix. Secrets Manager appends a random six-character suffix to the name, so the exact-name ARN (without a trailing `-*`) never matches; use `mcd/agent/token-*` (or `mcd/agent/oauth-*`) instead:
+The permission policy is the same either way. Scope `Resource` to the single secret, not a prefix — the section above shows self-hosted integration credentials commonly read through the same pod identity, so a wildcard like `mcd/agent/*` also grants the agent read access to every other secret an operator organizes under that prefix. Secrets Manager appends a random six-character suffix to the name, so an ARN assembled from the name alone does not match. Use the secret's real ARN — `aws secretsmanager describe-secret --secret-id mcd/agent/token --query ARN --output text`. Deleting and recreating the secret produces a new suffix and a new ARN; rotating its value does not.
 
 ```json
 {
@@ -321,7 +321,7 @@ The permission policy is the same either way. Scope `Resource` to the single sec
     {
       "Effect": "Allow",
       "Action": ["secretsmanager:GetSecretValue"],
-      "Resource": "arn:aws:secretsmanager:<region>:<account-id>:secret:mcd/agent/token-*"
+      "Resource": "<the-secret-arn>"
     },
     {
       "Effect": "Allow",
