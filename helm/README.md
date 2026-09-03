@@ -296,6 +296,10 @@ oauthSecret:
     secretId: mcd/agent/oauth
 
 skipExternalSecrets: true
+
+# Required: defaults to true, and the collectors cannot read this source.
+metricsCollector:
+  enabled: false
 ```
 
 Set `skipExternalSecrets: true` unless ESO is also installed for another reason (e.g. syncing integration credentials): with only `awsSecretsManager` configured, nothing needs the `SecretStore` the chart otherwise renders, and on a cluster with no ESO the `SecretStore` CRD doesn't exist, so `helm install` fails with `no matches for kind "SecretStore"`. Leave `skipExternalSecrets` unset only when you also want ESO for integration credentials, and configure `secretStore` in that case. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.

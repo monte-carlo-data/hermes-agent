@@ -121,7 +121,9 @@ inProcessLogs:
 #     key: <secret-name>
 #
 # AWS Secrets Manager path (agent reads the secret directly using the AWS
-# identity bound to its service account, via EKS Pod Identity or IRSA):
+# identity bound to its service account, via EKS Pod Identity or IRSA). Needs
+# `metricsCollector.enabled: false`, which defaults to true — the collectors
+# cannot read this source, and the combination is rejected at template time:
 # oauthSecret:
 #   enabled: true
 #   awsSecretsManager:
@@ -144,7 +146,8 @@ inProcessLogs:
 #   remoteRef:
 #     key: <secret-name>
 #
-# AWS Secrets Manager path (agent reads the secret directly):
+# AWS Secrets Manager path (agent reads the secret directly, with the same
+# `metricsCollector.enabled: false` requirement as above):
 # tokenSecret:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
