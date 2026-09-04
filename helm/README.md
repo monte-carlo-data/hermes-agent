@@ -302,52 +302,6 @@ metricsCollector:
   enabled: false
 ```
 
-#### How the Payload Is Stored
-
-Plain JSON in `SecretString` is the default. Binary secrets — `--secret-binary`, or Terraform's `secret_binary` — are read as UTF-8 with no extra configuration.
-
-Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block, including the per-field shape below:
-
-```yaml
-tokenSecret:
-  awsSecretsManager:
-    secretId: mcd/agent/token
-    base64Encoded: true
-```
-
-Decoding is never automatic: without the flag an encoded payload fails with `Credentials are not valid JSON`. The agent distinguishes each way a payload can be unusable, which is the only diagnostic available where operators can write secrets but not read them back:
-
-| Error | Cause |
-|---|---|
-| `Secret X exists but has no value yet` | Created, not yet populated |
-| `not valid JSON … looks like base64-encoded JSON` | Encoded payload, often a copied `kubectl get secret -o yaml` value or a stray `base64encode(...)` on Terraform's `secret_string` |
-| `not valid JSON` with no base64 note | A bare value, or malformed JSON |
-| `Secret X is configured as base64-encoded but its value is not valid base64 text` | Flag set against a plain payload |
-| `neither a string nor a binary value` | Neither field populated |
-
-#### One Secret per Credential Field
-
-Prefer a single secret holding the whole credential as JSON — its rotation is atomic, since every field comes from the same version. Where the convention is one value per secret, each field can name its own instead, holding a bare value:
-
-```yaml
-# key/token
-tokenSecret:
-  awsSecretsManager:
-    mcdIdSecretId: mcd/agent/mcd-id
-    mcdTokenSecretId: mcd/agent/mcd-token
-
-# or OAuth
-oauthSecret:
-  enabled: true
-  awsSecretsManager:
-    clientIdSecretId: mcd/agent/client-id
-    clientSecretSecretId: mcd/agent/client-secret
-```
-
-The IAM policy needs each secret's ARN, and rotation is no longer atomic: the reads are separate API calls, so one landing mid-rotation can pair a new value with an old one until the next refresh.
-
-`secretId` and the per-field keys are mutually exclusive, and a partially configured block is rejected — both fail at template time.
-
 Set `skipExternalSecrets: true` unless ESO is also installed for another reason (e.g. syncing integration credentials): with only `awsSecretsManager` configured, nothing needs the `SecretStore` the chart otherwise renders, and on a cluster with no ESO the `SecretStore` CRD doesn't exist, so `helm install` fails with `no matches for kind "SecretStore"`. Leave `skipExternalSecrets` unset only when you also want ESO for integration credentials, and configure `secretStore` in that case. `remoteRef` and `awsSecretsManager` are mutually exclusive within a block and configuring both fails at template time.
 
 **The metrics and logs collectors are incompatible with this source.** Both read `mcd_id`/`mcd_token` out of the `mcd-agent-token-secret` Secret with an init container, and that Secret is not created when the agent reads its own credential from a secret manager — so their pods would sit in `ContainerCreating` on every node while the install reported success. The chart rejects the combination at template time rather than rendering it. Set `metricsCollector.enabled: false` and leave `logShipping` at its default `in-process` (the agent ships its own logs, so nothing is lost there), or use a `remoteRef` credential source if you need the collectors.
@@ -356,9 +310,9 @@ Container CPU and memory metrics are the only thing given up. If you need them a
 
 **Migrating an existing ESO deployment to ASM.** Removing `remoteRef` and setting `skipExternalSecrets: true` must land in the same change — either edit alone leaves an invalid intermediate state: dropping `remoteRef` while `skipExternalSecrets` is unset still renders a `SecretStore` against a cluster that may have no such CRD, and setting `skipExternalSecrets: true` while `remoteRef` remains is rejected at template time (see [OAuth Authentication](#oauth-authentication) for the full enumeration of rejected combinations).
 
-**IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret. That is a different principal from the one the `secretStore` uses — with ESO it is the External Secrets Operator that reads the secret, so an existing deployment grants the permission to ESO rather than to the agent.
+**IAM prerequisite.** The agent's *own* service account needs `secretsmanager:GetSecretValue` on the secret (or, for the per-field shape, each field's secret). That is a different principal from the one the `secretStore` uses — with ESO it is the External Secrets Operator that reads the secret, so an existing deployment grants the permission to ESO rather than to the agent.
 
-The permission policy is the same either way. Scope `Resource` to the single secret, not a prefix — the section above shows self-hosted integration credentials commonly read through the same pod identity, so a wildcard like `mcd/agent/*` also grants the agent read access to every other secret an operator organizes under that prefix. Secrets Manager appends a random six-character suffix to the name, so an ARN assembled from the name alone does not match. Use the secret's real ARN — `aws secretsmanager describe-secret --secret-id mcd/agent/token --query ARN --output text`. Deleting and recreating the secret produces a new suffix and a new ARN; rotating its value does not.
+The permission policy is the same either way. Scope `Resource` to the exact secrets, not a prefix — the section above shows self-hosted integration credentials commonly read through the same pod identity, so a wildcard like `mcd/agent/*` also grants the agent read access to every other secret an operator organizes under that prefix. Secrets Manager appends a random six-character suffix to the name, so an ARN assembled from the name alone does not match. Use the secret's real ARN — `aws secretsmanager describe-secret --secret-id mcd/agent/token --query ARN --output text`. Deleting and recreating the secret produces a new suffix and a new ARN; rotating its value does not.
 
 ```json
 {
@@ -367,7 +321,7 @@ The permission policy is the same either way. Scope `Resource` to the single sec
     {
       "Effect": "Allow",
       "Action": ["secretsmanager:GetSecretValue"],
-      "Resource": "<the-secret-arn>"
+      "Resource": ["<the-secret-arn>"]
     },
     {
       "Effect": "Allow",
@@ -406,13 +360,61 @@ In two common cases the role already exists and only its policy needs widening:
 - **Deployed with a Terraform module.** The agent's service account already has a Pod Identity association to the `<cluster>-pod-identity` role, which carries the S3 policy for agent storage. Add Secrets Manager read to it — there is no new role or association to create.
 - **Already reading self-hosted integration credentials from AWS Secrets Manager.** The agent fetches those itself, through the same pod identity, so it already holds `secretsmanager:GetSecretValue`. Extend the resource scope to cover the agent's own secret.
 
-Without the permission the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id it tried to read. A missing `kms:Decrypt` grant on a customer-managed KMS key surfaces the same way — the `AccessDeniedException` is indistinguishable from a missing `GetSecretValue` grant in the reachability test output.
+Without the permission the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id — or, for the per-field shape, each field and its secret id — it tried to read. A missing `kms:Decrypt` grant on a customer-managed KMS key surfaces the same way — the `AccessDeniedException` is indistinguishable from a missing `GetSecretValue` grant in the reachability test output.
 
 The source caches the credential for 15 minutes. Key/token reads the source on every request, so a rotated secret is picked up within that window without a restart — more promptly than the ESO path's default hourly refresh. OAuth only re-reads the source when its access token needs refreshing — roughly every 48 minutes with a one-hour token (the agent refreshes at about 80% of the token lifetime) — so for OAuth the token lifetime, not the 15-minute source cache, is the binding constraint on how quickly a rotation is picked up. Both are still faster than ESO's hourly default. A read failure with a cached credential in hand logs a warning and keeps using it, since it stays valid until rotation.
 
 Detaching the IAM policy does not stop a running agent: it keeps using its already-cached credential until the staleness bound expires, and only then fails to refresh. Revoking access at the backend (rotating the credential's counterpart there) is the effective lever if the agent must be cut off promptly.
 
 AWS Secrets Manager is the only direct source today. Azure Key Vault and Google Secret Manager deployments continue to use ESO.
+
+#### How the Payload Is Stored
+
+Plain JSON in `SecretString` is the default. Binary secrets — `--secret-binary`, or Terraform's `secret_binary` — are read as UTF-8 with no extra configuration.
+
+Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block, including the per-field shape below:
+
+```yaml
+tokenSecret:
+  awsSecretsManager:
+    secretId: mcd/agent/token
+    base64Encoded: true
+```
+
+Decoding is never automatic: without the flag an encoded payload fails with `Credentials are not valid JSON`. The agent distinguishes each way a payload can be unusable, which is the only diagnostic available where operators can write secrets but not read them back:
+
+| Error | Cause |
+|---|---|
+| `Secret X exists but has no value yet` | No version yet, or a whitespace-only value |
+| `not valid JSON … looks like base64-encoded JSON` | Encoded payload, often a copied `kubectl get secret -o yaml` value or a stray `base64encode(...)` on Terraform's `secret_string` |
+| `not valid JSON` with no base64 note | A bare value, or malformed JSON |
+| `Secret X is configured as base64-encoded but its value is not valid base64 text` | Flag set against a plain payload |
+| `neither a string nor a binary value` | Neither field populated |
+| `Secret X holds binary data that is not UTF-8 text, so it cannot hold agent credentials` | Binary payload that isn't UTF-8 text (e.g. compressed or DER) |
+| `not valid JSON … looks doubly encoded` | Value encoded twice with `base64Encoded: true` set |
+
+#### One Secret per Credential Field
+
+Prefer a single secret holding the whole credential as JSON — its rotation is atomic, since every field comes from the same version. Where the convention is one value per secret, each field can name its own instead, holding a bare value:
+
+```yaml
+# key/token
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: mcd/agent/mcd-id
+    mcdTokenSecretId: mcd/agent/mcd-token
+
+# or OAuth
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientIdSecretId: mcd/agent/client-id
+    clientSecretSecretId: mcd/agent/client-secret
+```
+
+The IAM policy needs each secret's ARN listed individually in `Resource` — the prefix-wildcard warning above applies with more force here, since the names are siblings under one prefix. Rotation is no longer atomic, either: the reads are separate API calls, so one landing mid-rotation can pair a new value with an old one until the next refresh.
+
+`secretId` and the per-field keys are mutually exclusive, and a partially configured block is rejected — both fail at template time.
 
 ### OAuth Authentication
 
@@ -497,7 +499,7 @@ services:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
 
-On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. One secret per credential field works there too, via `MCD_AWS_SECRET_ID_CLIENT_ID` / `MCD_AWS_SECRET_ID_CLIENT_SECRET` (or `MCD_AWS_SECRET_ID_MCD_ID` / `MCD_AWS_SECRET_ID_MCD_TOKEN`), and `MCD_AWS_SECRET_BASE64_ENCODED=true` decodes them. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. One secret per credential field works there too, via `MCD_AWS_SECRET_ID_CLIENT_ID` / `MCD_AWS_SECRET_ID_CLIENT_SECRET` (or `MCD_AWS_SECRET_ID_MCD_ID` / `MCD_AWS_SECRET_ID_MCD_TOKEN`). For a base64-encoded payload set `MCD_AWS_SECRET_BASE64_ENCODED`, honoured only for the exact value `true`. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private

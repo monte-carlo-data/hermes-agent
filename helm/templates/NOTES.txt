@@ -30,7 +30,7 @@ Authenticating with {{ $method }}, read from AWS Secrets Manager{{ if $base64 }}
   {{ $secretId }} ({{ $field }})
 {{- end }}
 {{- else }}
-  {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
+  {{ include "hermes.auth.awsSecretId" . }}
 {{- end }}
 
 The agent's service account needs secretsmanager:GetSecretValue on

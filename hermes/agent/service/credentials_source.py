@@ -5,7 +5,7 @@ only in which keys they expect, so separating *where* it comes from lets a new
 source be added without touching either token provider.
 
 The file source covers the Kubernetes Secret and Docker bind-mount cases. The
-AWS Secrets Manager sources read the credential with the pod's own AWS
+AWS Secrets Manager source reads the credential with the pod's own AWS
 identity, so a deployment without the External Secrets Operator need not
 materialize it in the cluster at all.
 
@@ -17,7 +17,6 @@ credential read on every backend request.
 """
 
 import base64
-import binascii
 import json
 import logging
 import threading
@@ -32,7 +31,6 @@ logger = logging.getLogger(__name__)
 ATTR_NAME_SOURCE = "credentials_source"
 ATTR_NAME_FILE_PATH = "credentials_file_path"
 ATTR_NAME_SECRET_ID = "credentials_secret_id"
-ATTR_NAME_SECRET_IDS = "credentials_secret_ids"
 ATTR_NAME_REGION = "credentials_region"
 ATTR_NAME_BASE64_ENCODED = "credentials_base64_encoded"
 
@@ -58,24 +56,37 @@ class CredentialsSourceError(Exception):
     """The credential could not be read, or is not usable as JSON."""
 
 
-def _base64_hint(raw: str) -> str:
-    """Return a hint when `raw` is base64 that decodes to JSON, else "".
+def _base64_hint(raw: str, already_decoded: bool = False) -> str:
+    """Return a hint when `raw` is base64 that decodes to a JSON object, else "".
 
     Hinted rather than decoded on sight: base64 text is a valid string value,
     so decoding anything that looks like it would hide real misconfigurations.
     Worth detecting at all because a deployment whose operators can write
     secrets but not read them back has no other view of what was stored.
+
+    `already_decoded` says the caller has decoded once, which changes the
+    remedy: the value is doubly encoded, not merely encoded.
     """
     candidate = "".join(raw.split())
-    # Shorter than this cannot be base64 of a JSON object, and short strings
-    # ("null", "true") are valid base64 alphabet often enough to mislead.
+    # Below this, a base64-looking string is far more likely a short plain
+    # value ("null", "true") that happens to fit the alphabet than an
+    # encoded credential.
     if len(candidate) < 8:
         return ""
     try:
-        decoded = base64.b64decode(candidate, validate=True)
-        json.loads(decoded)
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+        decoded = json.loads(base64.b64decode(candidate, validate=True))
+    except ValueError:
         return ""
+    # Only an object is worth pointing at: _parse rejects anything else, so
+    # advising a decode for base64 of a scalar just swaps one error for
+    # another.
+    if not isinstance(decoded, dict):
+        return ""
+    if already_decoded:
+        return (
+            " — the value is still base64 after decoding once, so it looks "
+            "doubly encoded; store it encoded at most once"
+        )
     return (
         " — the value looks like base64-encoded JSON. Store the decoded JSON "
         "instead, or enable base64 decoding for this credential source"
@@ -102,12 +113,13 @@ class CredentialsSource(ABC):
         return {ATTR_NAME_SOURCE: self.source_name}
 
     @staticmethod
-    def _parse(raw: str, origin: str) -> Dict[str, Any]:
+    def _parse(raw: str, origin: str, base64_decoded: bool = False) -> Dict[str, Any]:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             raise CredentialsSourceError(
-                f"Credentials are not valid JSON: {origin}{_base64_hint(raw)}"
+                f"Credentials are not valid JSON: {origin}"
+                f"{_base64_hint(raw, base64_decoded)}"
             )
         if not isinstance(data, dict):
             raise CredentialsSourceError(f"Credentials must be a JSON object: {origin}")
@@ -164,15 +176,10 @@ class FileCredentialsSource(CredentialsSource):
 class AwsSecretsManagerCredentialsSource(CredentialsSource):
     """Reads the credential from AWS Secrets Manager, caching it briefly.
 
-    `secret_id` names one secret holding the whole credential as JSON, which
-    keeps rotation atomic. `secret_ids` instead maps each credential field to
-    its own secret holding a bare value, for conventions that allow only one
-    value per secret; rotation is not atomic there, since the fields are
-    separate API calls and one landing mid-rotation can pair a new value with
-    an old one until the next refresh.
-
-    Either way a refresh produces the whole credential under one lock, so the
-    cache never holds a partially refreshed one.
+    `secret_id` names one secret holding the whole credential as JSON;
+    `secret_ids` maps each credential field to its own secret holding a bare
+    value — separate API calls, so only the former rotates atomically (see
+    "One Secret per Credential Field" in the chart README).
 
     The boto client is built lazily and then reused: constructing it resolves
     the pod's AWS credentials, which is not possible before the cluster's AWS
@@ -280,7 +287,8 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     def describe(self) -> Dict[str, str]:
         described = {**super().describe()}
         if self._secret_ids:
-            described[ATTR_NAME_SECRET_IDS] = ", ".join(
+            # Self-describing in this slot: "field=secret-id, field=secret-id".
+            described[ATTR_NAME_SECRET_ID] = ", ".join(
                 f"{field}={secret_id}"
                 for field, secret_id in sorted(self._secret_ids.items())
             )
@@ -312,7 +320,11 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         if self._secret_ids:
             return self._fetch_fields()
         raw = self._read_secret(str(self._secret_id))
-        return self._parse(raw, f"AWS Secrets Manager secret {self._secret_id}")
+        return self._parse(
+            raw,
+            f"AWS Secrets Manager secret {self._secret_id}",
+            base64_decoded=self._base64_encoded,
+        )
 
     def _fetch_fields(self) -> Dict[str, Any]:
         values: Dict[str, Any] = {}
@@ -336,15 +348,20 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         both fields. Timeouts are botocore's 60s defaults, so a slow call holds
         the lock for minutes; bounding that needs an agent-common change.
         """
-        response = self._get_client().wrapped_client.get_secret_value(
-            SecretId=secret_id
-        )
+        client = self._get_client()
+        try:
+            response = client.wrapped_client.get_secret_value(SecretId=secret_id)
+        except client.wrapped_client.exceptions.ResourceNotFoundException:
+            # A secret created by one tool and populated by another has no
+            # version yet, which AWS reports as not found rather than empty.
+            raise CredentialsSourceError(
+                f"Secret {secret_id} exists but has no value yet"
+            )
         raw = response.get("SecretString")
         if raw is None:
             raw = self._decode_binary(response, secret_id)
-        # Kept distinct from the cases above: a secret created by one tool and
-        # populated by another is empty until the second runs, and calling
-        # that a missing or binary value misdirects.
+        # Kept distinct from the cases above: AWS allows a whitespace-only
+        # value, which isn't a missing or binary value either.
         if not raw.strip():
             raise CredentialsSourceError(
                 f"Secret {secret_id} exists but has no value yet"
@@ -355,7 +372,6 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
 
     @staticmethod
     def _decode_binary(response: Dict[str, Any], secret_id: str) -> str:
-        """Return the response's SecretBinary payload, decoded as UTF-8."""
         binary = response.get("SecretBinary")
         if binary is None:
             raise CredentialsSourceError(
@@ -373,7 +389,7 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     def _decode_base64(raw: str, secret_id: str) -> str:
         try:
             return base64.b64decode("".join(raw.split()), validate=True).decode("utf-8")
-        except (binascii.Error, ValueError, UnicodeDecodeError):
+        except ValueError:
             raise CredentialsSourceError(
                 f"Secret {secret_id} is configured as base64-encoded but its "
                 f"value is not valid base64 text"

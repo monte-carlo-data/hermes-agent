@@ -12,10 +12,19 @@ that combination instead.
 */}}
 {{- define "hermes.oauth.enabled" -}}
 {{- with .Values.oauthSecret -}}
+{{- $asm := .awsSecretsManager | default dict -}}
 {{/* Per-field keys checked individually, so a half-configured block still
      selects OAuth and fails on the missing key rather than falling back to
-     key/token authentication. */}}
-{{- if or .enabled .remoteRef (.awsSecretsManager).secretId (.awsSecretsManager).clientIdSecretId (.awsSecretsManager).clientSecretSecretId -}}
+     key/token authentication. Method fixed to "oauthSecret": this runs while
+     the method is still being determined, so it cannot ask for "whichever
+     method ends up selected". */}}
+{{- $fieldSet := false -}}
+{{- range $key := keys (include "hermes.auth.awsFieldKeys" "oauthSecret" | fromJson) -}}
+{{- if get $asm $key -}}
+{{- $fieldSet = true -}}
+{{- end -}}
+{{- end -}}
+{{- if or .enabled .remoteRef $asm.secretId $fieldSet -}}
 true
 {{- end -}}
 {{- end -}}
@@ -49,26 +58,50 @@ condition. The three are mutually exclusive by construction: a block with both
 {{- end -}}
 
 {{/*
+Values keys naming one secret per credential field, mapped to the agent's
+payload field, for `oauthSecret` or `tokenSecret`.
+*/}}
+{{- define "hermes.auth.awsFieldKeys" -}}
+{{- if eq . "oauthSecret" -}}
+{{- dict "clientIdSecretId" "client_id" "clientSecretSecretId" "client_secret" | toJson -}}
+{{- else -}}
+{{- dict "mcdIdSecretId" "mcd_id" "mcdTokenSecretId" "mcd_token" | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The selected method's credential fields mapped to the secret each is read
 from, as JSON — empty when one secret holds the whole credential, or when
 only some fields are configured (hermes.auth.validate rejects that first).
-
-Chart-internal: the deployment renders one env var per entry, named after the
-field, and NOTES.txt lists them. Field names are the agent's; operators
-configure the friendlier `clientIdSecretId` / `mcdIdSecretId` keys.
+Field names are the agent's; operators configure the friendlier
+`clientIdSecretId` / `mcdIdSecretId` keys.
 */}}
 {{- define "hermes.auth.awsFieldSecretIds" -}}
 {{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
+{{- $method := ternary "oauthSecret" "tokenSecret" $oauth -}}
 {{- $asm := (ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) $oauth).awsSecretsManager | default dict -}}
-{{- if $oauth -}}
-{{- if and $asm.clientIdSecretId $asm.clientSecretSecretId -}}
-{{- dict "client_id" $asm.clientIdSecretId "client_secret" $asm.clientSecretSecretId | toJson -}}
-{{- end -}}
+{{- $fieldKeys := include "hermes.auth.awsFieldKeys" $method | fromJson -}}
+{{- $result := dict -}}
+{{- $missing := false -}}
+{{- range $key, $field := $fieldKeys -}}
+{{- if get $asm $key -}}
+{{- $result = set $result $field (get $asm $key) -}}
 {{- else -}}
-{{- if and $asm.mcdIdSecretId $asm.mcdTokenSecretId -}}
-{{- dict "mcd_id" $asm.mcdIdSecretId "mcd_token" $asm.mcdTokenSecretId | toJson -}}
+{{- $missing = true -}}
 {{- end -}}
 {{- end -}}
+{{- if not $missing -}}
+{{- $result | toJson -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The secret id (name or ARN) for the selected method's Secrets Manager source,
+or empty in the per-field shape — see hermes.auth.awsFieldSecretIds.
+*/}}
+{{- define "hermes.auth.awsSecretId" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- ($block.awsSecretsManager).secretId -}}
 {{- end -}}
 
 {{/*
@@ -84,10 +117,18 @@ empty lets boto resolve it the usual way.
 Whether the selected method's Secrets Manager values are base64-encoded.
 Applies to every secret in the block. Opt-in because base64 text is itself a
 valid secret value; binary secrets need no flag.
+
+Checked with `kindIs "bool"` rather than plain truthiness: `text/template`
+treats any non-empty string as true, so a quoted `base64Encoded: "false"`
+(e.g. from `--set-string`, a values file round-tripped through `yq`, or a
+Terraform `set { type = "string" }` block) would otherwise turn decoding on.
+hermes.auth.validate rejects a non-bool value outright rather than silently
+ignoring it.
 */}}
 {{- define "hermes.auth.awsBase64Encoded" -}}
 {{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
-{{- if ($block.awsSecretsManager).base64Encoded -}}true{{- end -}}
+{{- $flag := ($block.awsSecretsManager).base64Encoded -}}
+{{- if and (kindIs "bool" $flag) $flag -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -129,7 +170,13 @@ install reports success.
 {{- end -}}
 {{- end -}}
 {{- $tokenAsm := (.Values.tokenSecret).awsSecretsManager | default dict -}}
-{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) $tokenAsm.secretId $tokenAsm.mcdIdSecretId $tokenAsm.mcdTokenSecretId) -}}
+{{- $tokenFieldSet := false -}}
+{{- range $key := keys (include "hermes.auth.awsFieldKeys" "tokenSecret" | fromJson) -}}
+{{- if get $tokenAsm $key -}}
+{{- $tokenFieldSet = true -}}
+{{- end -}}
+{{- end -}}
+{{- if and $oauth (or ((.Values.tokenSecret).remoteRef) $tokenAsm.secretId $tokenFieldSet) -}}
 {{- fail "oauthSecret and tokenSecret are both configured with a credential source — the agent uses one authentication method at a time. Remove the oauthSecret block to use key/token authentication, or remove tokenSecret to use OAuth." -}}
 {{- end -}}
 {{/* The `if $block` is load-bearing, not defensive: an unset block arrives from
@@ -139,8 +186,9 @@ install reports success.
 {{- if $block -}}
 {{- $asm := $block.awsSecretsManager | default dict -}}
 {{/* Named for the owning method's credential fields, so an operator never
-     needs the agent's payload key names. */}}
-{{- $fieldKeys := ternary (list "clientIdSecretId" "clientSecretSecretId") (list "mcdIdSecretId" "mcdTokenSecretId") (eq $method "oauthSecret") -}}
+     needs the agent's payload key names. Sorted: fail messages below join
+     these into text, and map key order is otherwise unspecified. */}}
+{{- $fieldKeys := keys (include "hermes.auth.awsFieldKeys" $method | fromJson) | sortAlpha -}}
 {{- $setFields := list -}}
 {{- $unsetFields := list -}}
 {{- range $key := $fieldKeys -}}
@@ -162,6 +210,9 @@ install reports success.
 {{- end -}}
 {{- if and (hasKey $block "awsSecretsManager") (not $asm.secretId) (not $hasFields) -}}
 {{- fail (printf "%s.awsSecretsManager is set but names no secret. Set %s.awsSecretsManager.secretId for one secret holding the whole credential, or %s for one secret per field." $method $method (join " and " $fieldKeys)) -}}
+{{- end -}}
+{{- if and (hasKey ($block.awsSecretsManager | default dict) "base64Encoded") (not (kindIs "bool" ($block.awsSecretsManager).base64Encoded)) -}}
+{{- fail (printf "%s.awsSecretsManager.base64Encoded must be a boolean, got %q. A quoted value (e.g. \"false\") is a non-empty string, which is always true — set it unquoted." $method (toString ($block.awsSecretsManager).base64Encoded)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
