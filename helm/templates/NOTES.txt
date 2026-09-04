@@ -24,7 +24,7 @@ Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
 {{ if eq $source "awsSecretsManager" }}
 Authenticating with {{ $method }}, read from AWS Secrets Manager{{ if $base64 }}
 (base64-encoded){{ end }}:
-  {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
+  {{ include "hermes.auth.awsSecretId" . }}
 
 The agent's service account needs secretsmanager:GetSecretValue on that
 secret — see "Reading Credentials Directly from AWS Secrets Manager" in the

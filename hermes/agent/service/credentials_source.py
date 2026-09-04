@@ -17,7 +17,6 @@ credential read on every backend request.
 """
 
 import base64
-import binascii
 import json
 import logging
 import threading
@@ -69,13 +68,14 @@ def _base64_hint(raw: str, already_decoded: bool = False) -> str:
     remedy: the value is doubly encoded, not merely encoded.
     """
     candidate = "".join(raw.split())
-    # Shorter than this cannot be base64 of a JSON object, and short strings
-    # ("null", "true") are valid base64 alphabet often enough to mislead.
+    # Below this, a base64-looking string is far more likely a short plain
+    # value ("null", "true") that happens to fit the alphabet than an
+    # encoded credential.
     if len(candidate) < 8:
         return ""
     try:
         decoded = json.loads(base64.b64decode(candidate, validate=True))
-    except (binascii.Error, ValueError, UnicodeDecodeError):
+    except ValueError:
         return ""
     # Only an object is worth pointing at: _parse rejects anything else, so
     # advising a decode for base64 of a scalar just swaps one error for
@@ -297,15 +297,20 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         both fields. Timeouts are botocore's 60s defaults, so a slow call holds
         the lock for minutes; bounding that needs an agent-common change.
         """
-        response = self._get_client().wrapped_client.get_secret_value(
-            SecretId=self._secret_id
-        )
+        client = self._get_client()
+        try:
+            response = client.wrapped_client.get_secret_value(SecretId=self._secret_id)
+        except client.wrapped_client.exceptions.ResourceNotFoundException:
+            # A secret created by one tool and populated by another has no
+            # version yet, which AWS reports as not found rather than empty.
+            raise CredentialsSourceError(
+                f"Secret {self._secret_id} exists but has no value yet"
+            )
         raw = response.get("SecretString")
         if raw is None:
             raw = self._decode_binary(response, self._secret_id)
-        # Kept distinct from the cases above: a secret created by one tool and
-        # populated by another is empty until the second runs, and calling
-        # that a missing or binary value misdirects.
+        # Kept distinct from the cases above: AWS allows a whitespace-only
+        # value, which isn't a missing or binary value either.
         if not raw.strip():
             raise CredentialsSourceError(
                 f"Secret {self._secret_id} exists but has no value yet"
@@ -320,7 +325,6 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
 
     @staticmethod
     def _decode_binary(response: Dict[str, Any], secret_id: str) -> str:
-        """Return the response's SecretBinary payload, decoded as UTF-8."""
         binary = response.get("SecretBinary")
         if binary is None:
             raise CredentialsSourceError(
@@ -338,7 +342,7 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     def _decode_base64(raw: str, secret_id: str) -> str:
         try:
             return base64.b64decode("".join(raw.split()), validate=True).decode("utf-8")
-        except (binascii.Error, ValueError, UnicodeDecodeError):
+        except ValueError:
             raise CredentialsSourceError(
                 f"Secret {secret_id} is configured as base64-encoded but its "
                 f"value is not valid base64 text"

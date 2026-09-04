@@ -82,14 +82,14 @@ spec:
               value: {{ .Values.container.opsRunnerThreadCount | default "18" | quote }}
             - name: MCD_PUBLISHER_THREAD_COUNT
               value: {{ .Values.container.publisherThreadCount | default "3" | quote }}
-            {{- if and (not (include "hermes.oauth.enabled" .)) (ne (include "hermes.auth.source" .) "awsSecretsManager") }}
+            {{- $oauth := eq (include "hermes.auth.method" .) "oauth" }}
+            {{- if and (not $oauth) (ne (include "hermes.auth.source" .) "awsSecretsManager") }}
             - name: MCD_TOKEN_FILE_PATH
               value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
             {{- end }}
             {{- if eq (include "hermes.auth.source" .) "awsSecretsManager" }}
-            {{- $oauth := eq (include "hermes.auth.method" .) "oauth" }}
             - name: {{ ternary "MCD_AWS_SECRET_ID_OAUTH" "MCD_AWS_SECRET_ID_KEY_TOKEN" $oauth }}
-              value: {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId | quote }}
+              value: {{ include "hermes.auth.awsSecretId" . | quote }}
             {{- with (include "hermes.auth.awsRegion" .) }}
             - name: MCD_AWS_SECRET_REGION
               value: {{ . | quote }}

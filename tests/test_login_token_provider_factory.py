@@ -8,9 +8,9 @@ from apollo.egress.agent.service.file_login_token_provider import (
 from apollo.egress.agent.service.login_token_provider import LocalLoginTokenProvider
 
 from hermes.agent.service.credentials_source import (
+    ATTR_NAME_BASE64_ENCODED,
     ATTR_NAME_FILE_PATH,
     ATTR_NAME_REGION,
-    ATTR_NAME_BASE64_ENCODED,
     ATTR_NAME_SECRET_ID,
     SOURCE_AWS_SECRETS_MANAGER,
     SOURCE_FILE,
@@ -23,7 +23,6 @@ from hermes.agent.service.login_token_provider_factory import (
     ENV_AWS_SECRET_REGION,
     ENV_OAUTH_FILE_PATH,
     ENV_OAUTH_TOKEN_ENDPOINT,
-    ENV_AWS_SECRET_ID_KEY_TOKEN,
     ENV_TOKEN_FILE_PATH,
     build_login_token_provider,
 )
@@ -39,9 +38,9 @@ _ALL_ENV = {
     ENV_AWS_SECRET_ID_OAUTH: "",
     ENV_OAUTH_TOKEN_ENDPOINT: "",
     ENV_TOKEN_FILE_PATH: "",
+    ENV_AWS_SECRET_ID_KEY_TOKEN: "",
     ENV_AWS_SECRET_REGION: "",
     ENV_AWS_SECRET_BASE64_ENCODED: "",
-    ENV_AWS_SECRET_ID_KEY_TOKEN: "",
 }
 
 
@@ -93,6 +92,20 @@ class BuildLoginTokenProviderTests(TestCase):
         self.assertEqual(
             "true", provider._credentials_source.describe()[ATTR_NAME_BASE64_ENCODED]
         )
+
+    def test_base64_flag_requires_exact_lowercase_true(self):
+        # Pins the strict comparison: near-misses like "1" or a trailing
+        # space from Terraform interpolation are treated as off, not on.
+        for value in ("1", "true "):
+            provider = self._build(
+                **{
+                    ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token",
+                    ENV_AWS_SECRET_BASE64_ENCODED: value,
+                }
+            )
+            self.assertNotIn(
+                ATTR_NAME_BASE64_ENCODED, provider._credentials_source.describe()
+            )
 
     def test_oauth_file_selected_over_token_file(self):
         provider = self._build(
