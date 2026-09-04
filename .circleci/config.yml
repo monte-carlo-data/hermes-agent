@@ -296,6 +296,12 @@ workflows:
           requires:
             - build-and-push-dev
             - render-helm-chart
+          # Same reason as build-and-push-helm-chart-prod below: a filtered-out
+          # `requires` does not keep this off feature branches.
+          filters:
+            branches:
+              only:
+                - dev
       - trigger-deploy:
           name: trigger-deploy-dev
           env-type: dev
@@ -321,9 +327,18 @@ workflows:
           requires:
             - build-and-push-prod
             - render-helm-chart
+          # Must repeat build-and-push-prod's filters rather than relying on
+          # `requires`: CircleCI drops a filtered-out dependency from the graph
+          # and treats the requirement as met, so without `branches: ignore`
+          # this ran on every branch. `generate-version-number-prod` resolves
+          # ${VERSION_TAG} with `git describe`, which on a branch is the last
+          # release tag — so each run republished that released tag from
+          # branch content.
           filters:
             tags:
-              only: /.*/
+              only: /^v.*/
+            branches:
+              ignore: /.*/
       - trigger-deploy:
           name: trigger-deploy-prod
           env-type: prod
