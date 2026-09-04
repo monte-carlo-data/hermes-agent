@@ -72,6 +72,14 @@ configure the friendlier `clientIdSecretId` / `mcdIdSecretId` keys.
 {{- end -}}
 
 {{/*
+The secret id (name or ARN) for the selected method's Secrets Manager source.
+*/}}
+{{- define "hermes.auth.awsSecretId" -}}
+{{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
+{{- ($block.awsSecretsManager).secretId -}}
+{{- end -}}
+
+{{/*
 The AWS region for the selected method's Secrets Manager source, or empty —
 empty lets boto resolve it the usual way.
 */}}
@@ -84,10 +92,18 @@ empty lets boto resolve it the usual way.
 Whether the selected method's Secrets Manager values are base64-encoded.
 Applies to every secret in the block. Opt-in because base64 text is itself a
 valid secret value; binary secrets need no flag.
+
+Checked with `kindIs "bool"` rather than plain truthiness: `text/template`
+treats any non-empty string as true, so a quoted `base64Encoded: "false"`
+(e.g. from `--set-string`, a values file round-tripped through `yq`, or a
+Terraform `set { type = "string" }` block) would otherwise turn decoding on.
+hermes.auth.validate rejects a non-bool value outright rather than silently
+ignoring it.
 */}}
 {{- define "hermes.auth.awsBase64Encoded" -}}
 {{- $block := ternary (.Values.oauthSecret | default dict) (.Values.tokenSecret | default dict) (eq (include "hermes.auth.method" .) "oauth") -}}
-{{- if ($block.awsSecretsManager).base64Encoded -}}true{{- end -}}
+{{- $flag := ($block.awsSecretsManager).base64Encoded -}}
+{{- if and (kindIs "bool" $flag) $flag -}}true{{- end -}}
 {{- end -}}
 
 {{/*
@@ -162,6 +178,9 @@ install reports success.
 {{- end -}}
 {{- if and (hasKey $block "awsSecretsManager") (not $asm.secretId) (not $hasFields) -}}
 {{- fail (printf "%s.awsSecretsManager is set but names no secret. Set %s.awsSecretsManager.secretId for one secret holding the whole credential, or %s for one secret per field." $method $method (join " and " $fieldKeys)) -}}
+{{- end -}}
+{{- if and (hasKey ($block.awsSecretsManager | default dict) "base64Encoded") (not (kindIs "bool" ($block.awsSecretsManager).base64Encoded)) -}}
+{{- fail (printf "%s.awsSecretsManager.base64Encoded must be a boolean, got %q. A quoted value (e.g. \"false\") is a non-empty string, which is always true — set it unquoted." $method (toString ($block.awsSecretsManager).base64Encoded)) -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

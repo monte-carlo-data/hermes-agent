@@ -106,6 +106,8 @@ inProcessLogs:
 #   AWS Secrets Manager" in helm/README.md for the IAM prerequisite.
 # awsSecretsManager.region: optional; omit to let the agent resolve the region
 #   the usual way, which is what a same-region deployment wants.
+# awsSecretsManager.base64Encoded: decode every secret in this block as
+#   base64 before use — see helm/README.md.
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.
@@ -129,9 +131,8 @@ inProcessLogs:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
 #
-# Secrets stored as binary are read without any extra configuration. Values
-# that hold base64-encoded content need `base64Encoded: true`, which applies to
-# every secret in the block. See helm/README.md.
+# Secrets stored as binary are read without any extra configuration. See
+# helm/README.md.
 #
 # Or one secret per credential field, for deployments whose convention is one
 # value per secret. Each secret holds a bare value, not JSON. Prefer the single
@@ -160,7 +161,9 @@ inProcessLogs:
 #     key: <secret-name>
 #
 # AWS Secrets Manager path (agent reads the secret directly, with the same
-# `metricsCollector.enabled: false` requirement as above):
+# `metricsCollector.enabled: false` requirement as above). Same keys as
+# oauthSecret.awsSecretsManager above, including base64Encoded for a
+# base64-encoded payload:
 # tokenSecret:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>

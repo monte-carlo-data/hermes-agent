@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import tempfile
+import textwrap
 import threading
 from unittest import TestCase
 from unittest.mock import Mock, patch
@@ -23,6 +24,34 @@ from hermes.agent.service.credentials_source import (
 )
 
 _CREDS = {"client_id": "test-client-id", "client_secret": "test-client-secret"}
+
+
+class ResourceNotFound(Exception):
+    """Stands in for botocore's dynamically generated exception class."""
+
+
+def _asm_client(*side_effects):
+    """Proxy-client mock returning each value from get_secret_value.
+
+    A plain string becomes a SecretString response; pass a dict to control
+    the whole response, or an exception to have it raised.
+    """
+    client = Mock(spec=SecretsManagerProxyClient)
+    client.wrapped_client.get_secret_value.side_effect = [
+        value if isinstance(value, (dict, BaseException)) else {"SecretString": value}
+        for value in side_effects
+    ]
+    # Mock(spec=...) leaves attributes reached through other attributes
+    # unspecced, so client.wrapped_client.exceptions.ResourceNotFoundException
+    # would otherwise be a plain Mock, unusable in an `except` clause.
+    client.wrapped_client.exceptions.ResourceNotFoundException = ResourceNotFound
+    return client
+
+
+def _asm_source(client, **kwargs):
+    source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent", **kwargs)
+    source._client = client
+    return source
 
 
 class FileCredentialsSourceTests(TestCase):
@@ -107,82 +136,44 @@ class FileCredentialsSourceTests(TestCase):
 
 
 class AwsSecretsManagerCredentialsSourceTests(TestCase):
-    def _source(self, client, **kwargs):
-        source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent", **kwargs)
-        source._client = client
-        return source
-
-    @staticmethod
-    def _client(*side_effects):
-        """Proxy-client mock returning each value from get_secret_value.
-
-        A plain string (or None) becomes a SecretString response; pass a dict
-        to control the whole response, or an exception to have it raised.
-        """
-        client = Mock(spec=SecretsManagerProxyClient)
-        client.wrapped_client.get_secret_value.side_effect = [
-            (
-                value
-                if isinstance(value, (dict, BaseException))
-                else {"SecretString": value}
-            )
-            for value in side_effects
-        ]
-        return client
-
     def test_reads_and_parses_secret(self):
-        client = self._client(json.dumps(_CREDS))
-        self.assertEqual(_CREDS, self._source(client).read())
+        client = _asm_client(json.dumps(_CREDS))
+        self.assertEqual(_CREDS, _asm_source(client).read())
         client.wrapped_client.get_secret_value.assert_called_once_with(
             SecretId="mcd/agent"
         )
 
     def test_second_read_inside_ttl_is_served_from_cache(self):
-        client = self._client(json.dumps(_CREDS))
-        source = self._source(client)
+        client = _asm_client(json.dumps(_CREDS))
+        source = _asm_source(client)
         source.read()
         source.read()
         self.assertEqual(1, client.wrapped_client.get_secret_value.call_count)
 
     def test_read_after_ttl_expiry_refetches(self):
         rotated = {"client_id": "rotated", "client_secret": "rotated-secret"}
-        client = self._client(json.dumps(_CREDS), json.dumps(rotated))
-        source = self._source(client, cache_ttl_seconds=0)
+        client = _asm_client(json.dumps(_CREDS), json.dumps(rotated))
+        source = _asm_source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         self.assertEqual(rotated, source.read())
         self.assertEqual(2, client.wrapped_client.get_secret_value.call_count)
 
     def test_refresh_failure_serves_cached_value(self):
-        client = self._client(json.dumps(_CREDS), RuntimeError("throttled"))
-        source = self._source(client, cache_ttl_seconds=0)
+        client = _asm_client(json.dumps(_CREDS), RuntimeError("throttled"))
+        source = _asm_source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         # Refresh fails, but the cached credential is still valid.
         self.assertEqual(_CREDS, source.read())
 
     def test_first_read_failure_raises(self):
-        source = self._source(self._client(RuntimeError("access denied")))
+        source = _asm_source(_asm_client(RuntimeError("access denied")))
         with self.assertRaises(CredentialsSourceError) as ctx:
             source.read()
         self.assertIn("mcd/agent", str(ctx.exception))
         self.assertIn("access denied", str(ctx.exception))
 
-    def test_secret_with_neither_string_nor_binary_raises(self):
-        source = self._source(self._client(None))
-        with self.assertRaises(CredentialsSourceError) as ctx:
-            source.read()
-        self.assertIn("neither a string nor a binary value", str(ctx.exception))
-
-    def test_empty_secret_is_not_reported_as_binary(self):
-        # A secret created by one tool and populated by another is empty until
-        # the second runs; calling that a binary secret misdirects entirely.
-        source = self._source(self._client(""))
-        with self.assertRaises(CredentialsSourceError) as ctx:
-            source.read()
-        self.assertIn("no value yet", str(ctx.exception))
-        self.assertNotIn("binary", str(ctx.exception))
-
     def test_invalid_json_raises(self):
-        source = self._source(self._client("not json"))
+        source = _asm_source(_asm_client("not json"))
         with self.assertRaises(CredentialsSourceError):
             source.read()
 
@@ -242,7 +233,7 @@ class AwsSecretsManagerCredentialsSourceTests(TestCase):
 
         client = Mock(spec=SecretsManagerProxyClient)
         client.wrapped_client.get_secret_value.side_effect = slow_get_secret_value
-        source = self._source(client)
+        source = _asm_source(client)
 
         results = []
 
@@ -270,32 +261,9 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
     API that is already failing — while the lock is held across each call.
     """
 
-    @staticmethod
-    def _client(*side_effects):
-        """Proxy-client mock returning each value from get_secret_value.
-
-        A plain string (or None) becomes a SecretString response; pass a dict
-        to control the whole response, or an exception to have it raised.
-        """
-        client = Mock(spec=SecretsManagerProxyClient)
-        client.wrapped_client.get_secret_value.side_effect = [
-            (
-                value
-                if isinstance(value, (dict, BaseException))
-                else {"SecretString": value}
-            )
-            for value in side_effects
-        ]
-        return client
-
-    def _source(self, client, **kwargs):
-        source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent", **kwargs)
-        source._client = client
-        return source
-
     def test_sustained_failure_with_warm_cache_backs_off(self):
-        client = self._client(json.dumps(_CREDS), *[RuntimeError("throttled")] * 20)
-        source = self._source(client, cache_ttl_seconds=0)
+        client = _asm_client(json.dumps(_CREDS), *[RuntimeError("throttled")] * 20)
+        source = _asm_source(client, cache_ttl_seconds=0)
         source.read()
 
         for _ in range(20):
@@ -306,8 +274,8 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         self.assertLessEqual(client.wrapped_client.get_secret_value.call_count, 2)
 
     def test_sustained_failure_from_cold_cache_backs_off(self):
-        client = self._client(*[RuntimeError("access denied")] * 20)
-        source = self._source(client)
+        client = _asm_client(*[RuntimeError("access denied")] * 20)
+        source = _asm_source(client)
 
         for _ in range(20):
             with self.assertRaises(CredentialsSourceError):
@@ -322,8 +290,8 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         # succeeds, so "retrying can't fix it" is not a reason to skip the
         # backoff window — without one, every backend request pays for a real
         # API call to re-discover the same bad value.
-        client = self._client(*["not json"] * 20)
-        source = self._source(client)
+        client = _asm_client(*["not json"] * 20)
+        source = _asm_source(client)
 
         for _ in range(20):
             with self.assertRaises(CredentialsSourceError):
@@ -335,8 +303,8 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         # Rotating a valid secret to a malformed one must not take the agent
         # down: the cached credential is still accepted by the backend until
         # it is actually revoked.
-        client = self._client(json.dumps(_CREDS), "not json")
-        source = self._source(client, cache_ttl_seconds=0)
+        client = _asm_client(json.dumps(_CREDS), "not json")
+        source = _asm_source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         self.assertEqual(_CREDS, source.read())
 
@@ -516,11 +484,7 @@ class AwsSecretsManagerEncodingTests(TestCase):
 
     @staticmethod
     def _source(response, **kwargs):
-        source = AwsSecretsManagerCredentialsSource(secret_id="mcd/agent", **kwargs)
-        client = Mock(spec=SecretsManagerProxyClient)
-        client.wrapped_client.get_secret_value.return_value = response
-        source._client = client
-        return source
+        return _asm_source(_asm_client(response), **kwargs)
 
     def test_binary_secret_is_read_without_a_flag(self):
         # --secret-binary stores valid UTF-8 JSON, and string and binary are
@@ -528,9 +492,15 @@ class AwsSecretsManagerEncodingTests(TestCase):
         source = self._source({"SecretBinary": json.dumps(_CREDS).encode()})
         self.assertEqual(_CREDS, source.read())
 
-    def test_binary_and_string_are_read_in_one_api_call(self):
-        source = self._source({"SecretBinary": json.dumps(_CREDS).encode()})
-        source.read()
+    def test_string_field_wins_over_binary_in_one_api_call(self):
+        other = {"client_id": "wrong", "client_secret": "wrong"}
+        source = self._source(
+            {
+                "SecretString": json.dumps(_CREDS),
+                "SecretBinary": json.dumps(other).encode(),
+            }
+        )
+        self.assertEqual(_CREDS, source.read())
         self.assertEqual(1, source._client.wrapped_client.get_secret_value.call_count)
 
     def test_binary_secret_that_is_not_utf8_raises(self):
@@ -571,6 +541,32 @@ class AwsSecretsManagerEncodingTests(TestCase):
             source.read()
         self.assertIn("doubly encoded", str(ctx.exception))
         self.assertNotIn("enable base64 decoding", str(ctx.exception))
+
+    def test_wrapped_base64_secret_is_decoded(self):
+        encoded = base64.b64encode(json.dumps(_CREDS).encode()).decode()
+        wrapped = "\n".join(textwrap.wrap(encoded, 40)) + "\n"
+        source = self._source({"SecretString": wrapped}, base64_encoded=True)
+        self.assertEqual(_CREDS, source.read())
+
+    def test_empty_secret_is_not_reported_as_binary(self):
+        source = self._source({"SecretString": ""})
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("no value yet", str(ctx.exception))
+        self.assertNotIn("binary", str(ctx.exception))
+
+    def test_secret_with_neither_field_raises(self):
+        source = self._source({})
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("neither a string nor a binary", str(ctx.exception))
+
+    def test_missing_secret_version_is_not_reported_as_binary(self):
+        source = _asm_source(_asm_client(ResourceNotFound("no version")))
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("no value yet", str(ctx.exception))
+        self.assertNotIn("binary", str(ctx.exception))
 
     def test_base64_decoding_is_reported(self):
         source = AwsSecretsManagerCredentialsSource(
