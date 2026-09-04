@@ -203,3 +203,36 @@ class BuildLoginTokenProviderTests(TestCase):
         ) as mock_client:
             self._build(**{ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token"})
             mock_client.assert_not_called()
+
+
+class RetiredEnvVarTests(TestCase):
+    # `clear=True` rather than the `_ALL_ENV` helper: the factory tests for the
+    # presence of a retired name, so a stray one in the developer's own
+    # environment would otherwise decide the result.
+    @staticmethod
+    def _build(**env):
+        with patch.dict("os.environ", env, clear=True):
+            return build_login_token_provider(backend_service_url=_BACKEND)
+
+    def test_a_retired_name_is_reported_before_falling_back(self):
+        # Without this the pod authenticates as agent-common's placeholder
+        # `local-token-id` against the production backend, and the only other
+        # signal is an INFO line and a healthy-looking provider.
+        with self.assertLogs(level="ERROR") as logs:
+            provider = self._build(MCD_TOKEN_AWS_SECRET_ID="mcd/agent/token")
+        self.assertIsInstance(provider, LocalLoginTokenProvider)
+        logged = "\n".join(logs.output)
+        self.assertIn("MCD_TOKEN_AWS_SECRET_ID", logged)
+        self.assertIn(ENV_AWS_SECRET_ID_KEY_TOKEN, logged)
+
+    def test_a_retired_name_left_behind_after_migrating_is_not_reported(self):
+        with self.assertNoLogs(level="ERROR"):
+            provider = self._build(
+                MCD_TOKEN_AWS_SECRET_ID="mcd/agent/token",
+                **{ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/token"},
+            )
+        self.assertIsInstance(provider, TokenLoginTokenProvider)
+
+    def test_the_retired_name_is_never_read_as_a_source(self):
+        provider = self._build(MCD_OAUTH_AWS_SECRET_ID="mcd/agent/oauth")
+        self.assertIsInstance(provider, LocalLoginTokenProvider)

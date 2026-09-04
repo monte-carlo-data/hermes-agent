@@ -102,8 +102,11 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
         logger.info(f"Getting MCD token from {token_source.describe()}")
         return TokenLoginTokenProvider(credentials_source=token_source)
 
+    # Presence, not value: reading it would tell us nothing more, and a
+    # `getenv` on a name containing SECRET makes CodeQL treat the name we log
+    # as the secret itself.
     for retired, replacement in _RETIRED_ENV_VARS.items():
-        if os.getenv(retired):
+        if retired in os.environ:
             logger.error(f"{retired} is retired and no longer read; use {replacement}")
 
     logger.info("Getting MCD token from env vars")
