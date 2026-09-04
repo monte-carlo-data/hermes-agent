@@ -368,6 +368,31 @@ Detaching the IAM policy does not stop a running agent: it keeps using its alrea
 
 AWS Secrets Manager is the only direct source today. Azure Key Vault and Google Secret Manager deployments continue to use ESO.
 
+#### How the Payload Is Stored
+
+Plain JSON in `SecretString` is the default. Binary secrets — `--secret-binary`, or Terraform's `secret_binary` — are read as UTF-8 with no extra configuration.
+
+Base64-encoded values need `base64Encoded: true`, which applies to every secret in the block:
+
+```yaml
+tokenSecret:
+  awsSecretsManager:
+    secretId: mcd/agent/token
+    base64Encoded: true
+```
+
+Decoding is never automatic: without the flag an encoded payload fails with `Credentials are not valid JSON`. The agent distinguishes each way a payload can be unusable, which is the only diagnostic available where operators can write secrets but not read them back:
+
+| Error | Cause |
+|---|---|
+| `Secret X exists but has no value yet` | No version yet, or a whitespace-only value |
+| `not valid JSON … looks like base64-encoded JSON` | Encoded payload, often a copied `kubectl get secret -o yaml` value or a stray `base64encode(...)` on Terraform's `secret_string` |
+| `not valid JSON` with no base64 note | A bare value, or malformed JSON |
+| `Secret X is configured as base64-encoded but its value is not valid base64 text` | Flag set against a plain payload |
+| `neither a string nor a binary value` | Neither field populated |
+| `Secret X holds binary data that is not UTF-8 text, so it cannot hold agent credentials` | Binary payload that isn't UTF-8 text (e.g. compressed or DER) |
+| `not valid JSON … looks doubly encoded` | Value encoded twice with `base64Encoded: true` set |
+
 ### OAuth Authentication
 
 The agent supports OAuth 2.0 `client_credentials` authentication as an alternative to the
@@ -395,6 +420,7 @@ oauthSecret:
 | `oauthSecret.remoteRef` | ExternalSecret remote reference — the credential source for ExternalSecret deployments | _(unset)_ |
 | `oauthSecret.awsSecretsManager.secretId` | AWS Secrets Manager secret the agent reads directly — see [Reading Credentials Directly from AWS Secrets Manager](#reading-credentials-directly-from-aws-secrets-manager) | _(unset)_ |
 | `oauthSecret.awsSecretsManager.region` | Optional region override for the above | _(unset)_ |
+| `oauthSecret.awsSecretsManager.base64Encoded` | Decode every secret in this block as base64 before use — see [How the Payload Is Stored](#how-the-payload-is-stored) | `false` |
 | `oauthSecret.tokenEndpoint` | Override the OAuth token endpoint URL | _(derived from `container.backendServiceUrl`)_ |
 
 For backwards compatibility a `remoteRef` or `awsSecretsManager` on its own also selects OAuth, which is what the Terraform modules and older values files emit — `enabled: true` is simply the clearer way to express it. The following combinations fail at template time rather than silently picking a method or a source:
@@ -446,7 +472,7 @@ services:
       - ./secrets/oauth.json:/etc/secrets/mcd-oauth/credentials.json:ro
 ```
 
-On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_OAUTH_AWS_SECRET_ID` (or `MCD_TOKEN_AWS_SECRET_ID`, plus an optional `MCD_AWS_SECRETS_MANAGER_REGION`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
+On EC2 or ECS, where an instance profile or task role already supplies AWS credentials, set `MCD_AWS_SECRET_ID_OAUTH` (or `MCD_AWS_SECRET_ID_KEY_TOKEN`, plus an optional `MCD_AWS_SECRET_REGION` and, for a base64-encoded payload, `MCD_AWS_SECRET_BASE64_ENCODED` — honoured only for the exact value `true`) instead of mounting a file — the role plays the same part IRSA does on EKS, and the credential stays out of the host filesystem. Don't reach for these env vars with static `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` values just to avoid the mount: that replaces one on-disk secret with a broader-scoped one.
 
 By default, the agent derives the token endpoint from `container.backendServiceUrl` (replacing the
 first hostname segment with `m2m`). Set `oauthSecret.tokenEndpoint` only for custom or private

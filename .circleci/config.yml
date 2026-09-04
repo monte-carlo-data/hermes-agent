@@ -7,6 +7,8 @@ orbs:
 defaults:
   - &install_helm_client
     helm/install_helm_client:
+      # Stays on 3.x: this is the version that packages and pushes the
+      # shipped chart (build-and-push-helm-chart), not just renders it.
       version: 3.19.5
 
 commands:
@@ -95,7 +97,12 @@ jobs:
       image: ubuntu-2204:current
     steps:
       - checkout
-      - *install_helm_client
+      - helm/install_helm_client:
+          # 4.x for `helm install --dry-run=client`, which render.sh uses to render
+          # NOTES.txt: `helm template` excludes it, and 3.19 still reaches for the
+          # cluster's version even in client mode, so the notes cases cannot pass
+          # on an agent with no kubeconfig.
+          version: 4.2.3
       - run:
           name: Render Helm chart test matrix
           command: ./helm/tests/render.sh
