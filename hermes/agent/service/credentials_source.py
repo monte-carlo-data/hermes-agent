@@ -5,7 +5,7 @@ only in which keys they expect, so separating *where* it comes from lets a new
 source be added without touching either token provider.
 
 The file source covers the Kubernetes Secret and Docker bind-mount cases. The
-AWS Secrets Manager sources read the credential with the pod's own AWS
+AWS Secrets Manager source reads the credential with the pod's own AWS
 identity, so a deployment without the External Secrets Operator need not
 materialize it in the cluster at all.
 
@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 ATTR_NAME_SOURCE = "credentials_source"
 ATTR_NAME_FILE_PATH = "credentials_file_path"
 ATTR_NAME_SECRET_ID = "credentials_secret_id"
-ATTR_NAME_SECRET_IDS = "credentials_secret_ids"
 ATTR_NAME_REGION = "credentials_region"
 ATTR_NAME_BASE64_ENCODED = "credentials_base64_encoded"
 
@@ -177,15 +176,10 @@ class FileCredentialsSource(CredentialsSource):
 class AwsSecretsManagerCredentialsSource(CredentialsSource):
     """Reads the credential from AWS Secrets Manager, caching it briefly.
 
-    `secret_id` names one secret holding the whole credential as JSON, which
-    keeps rotation atomic. `secret_ids` instead maps each credential field to
-    its own secret holding a bare value, for conventions that allow only one
-    value per secret; rotation is not atomic there, since the fields are
-    separate API calls and one landing mid-rotation can pair a new value with
-    an old one until the next refresh.
-
-    Either way a refresh produces the whole credential under one lock, so the
-    cache never holds a partially refreshed one.
+    `secret_id` names one secret holding the whole credential as JSON;
+    `secret_ids` maps each credential field to its own secret holding a bare
+    value — separate API calls, so only the former rotates atomically (see
+    "One Secret per Credential Field" in the chart README).
 
     The boto client is built lazily and then reused: constructing it resolves
     the pod's AWS credentials, which is not possible before the cluster's AWS
@@ -293,7 +287,8 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     def describe(self) -> Dict[str, str]:
         described = {**super().describe()}
         if self._secret_ids:
-            described[ATTR_NAME_SECRET_IDS] = ", ".join(
+            # Self-describing in this slot: "field=secret-id, field=secret-id".
+            described[ATTR_NAME_SECRET_ID] = ", ".join(
                 f"{field}={secret_id}"
                 for field, secret_id in sorted(self._secret_ids.items())
             )

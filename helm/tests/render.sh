@@ -338,6 +338,20 @@ assert_success "OAuth via one ASM secret per field" "${OAUTH_ASM_FIELDS}" \
     "example-client-id-secret" "example-client-secret-secret" \
   --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret" "kind: ExternalSecret"
 
+# No `enabled` key at all: the per-field terms in hermes.oauth.enabled must
+# still select OAuth.
+OAUTH_ASM_FIELDS_NO_ENABLED="${TMP_DIR}/oauth_asm_fields_no_enabled.yaml"
+cat >"${OAUTH_ASM_FIELDS_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field, no enabled key" "${OAUTH_ASM_FIELDS_NO_ENABLED}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+  --absent "MCD_TOKEN_FILE_PATH"
+
 ASM_FIELDS_WITH_REGION="${TMP_DIR}/asm_fields_with_region.yaml"
 cat >"${ASM_FIELDS_WITH_REGION}" <<'EOF'
 skipExternalSecrets: true
@@ -409,12 +423,12 @@ assert_notes "notes name base64-encoded OAuth values" "${OAUTH_ASM_BASE64}" \
   --present "(base64-encoded)"
 
 assert_notes "notes stay quiet without base64Encoded" "${KEY_TOKEN_ASM}" \
-  --present "read from AWS Secrets Manager" \
+  --present "read from AWS Secrets Manager" "that secret" \
   --absent "(base64-encoded)"
 
 assert_notes "notes list every per-field secret" "${OAUTH_ASM_FIELDS}" \
   --present "example-client-id-secret (client_id)" \
-    "example-client-secret-secret (client_secret)"
+    "example-client-secret-secret (client_secret)" "each of those secrets"
 # This shape creates no Kubernetes Secret either, so it must reject the
 # collectors for the same reason.
 ASM_FIELDS_COLLECTORS="${TMP_DIR}/asm_fields_collectors.yaml"
@@ -615,8 +629,11 @@ EOF
 assert_failure "per-field ASM missing clientIdSecretId" "${ASM_FIELDS_PARTIAL_OAUTH}" \
   "is missing clientIdSecretId"
 
-# No `enabled` either — must still select OAuth rather than silently
-# deploying key/token auth.
+# Pins that a half-configured block is rejected rather than falling back to
+# key/token auth. The missing-key message comes from the per-block key list
+# in hermes.auth.validate, keyed on the block name — it fires the same way
+# whether or not oauthSecret.enabled was ever set, so this does not exercise
+# the per-field terms in hermes.oauth.enabled (see the case above for that).
 ASM_FIELDS_PARTIAL_NO_ENABLED="${TMP_DIR}/asm_fields_partial_no_enabled.yaml"
 cat >"${ASM_FIELDS_PARTIAL_NO_ENABLED}" <<'EOF'
 skipExternalSecrets: true
@@ -638,6 +655,18 @@ tokenSecret:
 EOF
 assert_failure "per-field ASM together with remoteRef" "${ASM_FIELDS_WITH_REMOTEREF}" \
   "one source"
+
+BOTH_METHODS_FIELDS="${TMP_DIR}/both_methods_fields.yaml"
+cat >"${BOTH_METHODS_FIELDS}" <<'EOF'
+oauthSecret:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "oauthSecret enabled with tokenSecret configured via per-field ASM keys" "${BOTH_METHODS_FIELDS}" \
+  "one authentication method at a time"
 
 # --- environment values files -------------------------------------------------
 

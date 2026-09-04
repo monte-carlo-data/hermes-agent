@@ -12,11 +12,9 @@ from hermes.agent.service.credentials_source import (
     ATTR_NAME_FILE_PATH,
     ATTR_NAME_REGION,
     ATTR_NAME_SECRET_ID,
-    ATTR_NAME_BASE64_ENCODED,
-    ATTR_NAME_SECRET_IDS,
+    ATTR_NAME_SOURCE,
     SOURCE_AWS_SECRETS_MANAGER,
     SOURCE_FILE,
-    ATTR_NAME_SOURCE,
 )
 from hermes.agent.service.login_token_provider_factory import (
     ENV_AWS_SECRET_BASE64_ENCODED,
@@ -109,9 +107,7 @@ class BuildLoginTokenProviderTests(TestCase):
         self.assertEqual(
             {
                 ATTR_NAME_SOURCE: SOURCE_AWS_SECRETS_MANAGER,
-                ATTR_NAME_SECRET_IDS: (
-                    "mcd_id=mcd/agent/id, mcd_token=mcd/agent/token"
-                ),
+                ATTR_NAME_SECRET_ID: "mcd_id=mcd/agent/id, mcd_token=mcd/agent/token",
             },
             provider._credentials_source.describe(),
         )
@@ -121,12 +117,11 @@ class BuildLoginTokenProviderTests(TestCase):
         self.assertIsInstance(provider, OAuthLoginTokenProvider)
         self.assertEqual(
             "client_id=mcd/agent/client-id, client_secret=mcd/agent/client-secret",
-            provider._credentials_source.describe()[ATTR_NAME_SECRET_IDS],
+            provider._credentials_source.describe()[ATTR_NAME_SECRET_ID],
         )
 
     def test_single_secret_wins_over_per_field_secrets(self):
         # Only reachable in a hand-written environment; the chart rejects it.
-        # The single secret wins, being the shape whose rotation is atomic.
         provider = self._build(
             **{**_TOKEN_FIELDS, ENV_AWS_SECRET_ID_KEY_TOKEN: "mcd/agent/whole"}
         )
@@ -160,7 +155,7 @@ class BuildLoginTokenProviderTests(TestCase):
         )
         self.assertEqual(
             "mcd_id=mcd/agent/id",
-            provider._credentials_source.describe()[ATTR_NAME_SECRET_IDS],
+            provider._credentials_source.describe()[ATTR_NAME_SECRET_ID],
         )
 
     def test_base64_flag_is_passed_to_the_aws_source(self):
@@ -173,6 +168,12 @@ class BuildLoginTokenProviderTests(TestCase):
         self.assertEqual(
             "true", provider._credentials_source.describe()[ATTR_NAME_BASE64_ENCODED]
         )
+
+    def test_base64_flag_is_passed_to_the_per_field_source(self):
+        provider = self._build(
+            **{**_TOKEN_FIELDS, ENV_AWS_SECRET_BASE64_ENCODED: "true"}
+        )
+        self.assertIn(ATTR_NAME_BASE64_ENCODED, provider._credentials_source.describe())
 
     def test_base64_flag_requires_exact_lowercase_true(self):
         # Pins the strict comparison: near-misses like "1" or a trailing
