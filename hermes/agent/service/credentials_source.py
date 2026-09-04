@@ -176,6 +176,11 @@ class FileCredentialsSource(CredentialsSource):
 class AwsSecretsManagerCredentialsSource(CredentialsSource):
     """Reads the credential from AWS Secrets Manager, caching it briefly.
 
+    `secret_id` names one secret holding the whole credential as JSON;
+    `secret_ids` maps each credential field to its own secret holding a bare
+    value — separate API calls, so only the former rotates atomically (see
+    "One Secret per Credential Field" in the chart README).
+
     The boto client is built lazily and then reused: constructing it resolves
     the pod's AWS credentials, which is not possible before the cluster's AWS
     identity provider (EKS Pod Identity or IRSA) is reachable, so it must not
@@ -187,13 +192,21 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
 
     def __init__(
         self,
-        secret_id: str,
+        secret_id: Optional[str] = None,
+        secret_ids: Optional[Dict[str, str]] = None,
         region: Optional[str] = None,
         base64_encoded: bool = False,
         cache_ttl_seconds: int = DEFAULT_CACHE_TTL_SECONDS,
         max_stale_seconds: float = DEFAULT_MAX_STALE_SECONDS,
     ):
+        if bool(secret_id) == bool(secret_ids):
+            raise ValueError(
+                "pass either secret_id, for one secret holding the whole "
+                "credential, or secret_ids, mapping each credential field to "
+                "its own secret"
+            )
         self._secret_id = secret_id
+        self._secret_ids = secret_ids or {}
         self._region = region
         self._base64_encoded = base64_encoded
         self._cache_ttl_seconds = cache_ttl_seconds
@@ -247,37 +260,52 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
                 # operation over a transient API error; the credential is
                 # still valid until it is rotated.
                 logger.warning(
-                    f"Failed to refresh secret {self._secret_id} from AWS "
-                    f"Secrets Manager, using cached value: {self._last_failure}"
+                    f"Failed to refresh {self._target} from AWS Secrets "
+                    f"Manager, using cached value: {self._last_failure}"
                 )
             return self._cached
 
         if log:
             logger.warning(
-                f"Failed to read secret {self._secret_id} from AWS Secrets "
+                f"Failed to read {self._target} from AWS Secrets "
                 f"Manager: {self._last_failure}"
             )
 
         if self._cached is not None:
             raise CredentialsSourceError(
-                f"Cached credential for secret {self._secret_id} from AWS "
+                f"Cached credential for {self._target} from AWS "
                 f"Secrets Manager is older than the allowed staleness window "
                 f"of {self._max_stale_seconds:.0f}s; last failure: "
                 f"{self._last_failure}"
             )
         raise CredentialsSourceError(
-            f"Failed to read secret {self._secret_id} from AWS Secrets "
+            f"Failed to read {self._target} from AWS Secrets "
             f"Manager: {self._last_failure} (last attempt failed and a retry "
             f"is pending)"
         )
 
     def describe(self) -> Dict[str, str]:
-        described = {**super().describe(), ATTR_NAME_SECRET_ID: self._secret_id}
+        described = {**super().describe()}
+        if self._secret_ids:
+            # Self-describing in this slot: "field=secret-id, field=secret-id".
+            described[ATTR_NAME_SECRET_ID] = ", ".join(
+                f"{field}={secret_id}"
+                for field, secret_id in sorted(self._secret_ids.items())
+            )
+        else:
+            described[ATTR_NAME_SECRET_ID] = str(self._secret_id)
         if self._region:
             described[ATTR_NAME_REGION] = self._region
         if self._base64_encoded:
             described[ATTR_NAME_BASE64_ENCODED] = "true"
         return described
+
+    @property
+    def _target(self) -> str:
+        """What is being read, for log and error messages. Never a secret."""
+        if self._secret_ids:
+            return f"secrets {', '.join(sorted(self._secret_ids.values()))}"
+        return f"secret {self._secret_id}"
 
     def _is_stale(self) -> bool:
         return time.monotonic() - self._fetched_at >= self._cache_ttl_seconds
@@ -289,7 +317,30 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         return time.monotonic() < self._retry_after
 
     def _fetch(self) -> Dict[str, Any]:
-        """Return the credential, however the secret happens to store it.
+        if self._secret_ids:
+            return self._fetch_fields()
+        raw = self._read_secret(str(self._secret_id))
+        return self._parse(
+            raw,
+            f"AWS Secrets Manager secret {self._secret_id}",
+            base64_decoded=self._base64_encoded,
+        )
+
+    def _fetch_fields(self) -> Dict[str, Any]:
+        values: Dict[str, Any] = {}
+        for field, secret_id in self._secret_ids.items():
+            try:
+                # Stripped: a single-value secret created from a file or
+                # pasted into a console easily picks up a trailing newline.
+                values[field] = self._read_secret(secret_id).strip()
+            except CredentialsSourceError as ex:
+                # _read_secret names the secret; only this loop knows which
+                # field it was supplying.
+                raise CredentialsSourceError(f"{ex}, for credential field '{field}'")
+        return values
+
+    def _read_secret(self, secret_id: str) -> str:
+        """Return one secret's value as text, whatever it is stored as.
 
         Runs under `self._lock`, which single-flights the refresh — pinned by
         test_concurrent_reads_single_flight_the_fetch. Reaches past
@@ -299,29 +350,25 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         """
         client = self._get_client()
         try:
-            response = client.wrapped_client.get_secret_value(SecretId=self._secret_id)
+            response = client.wrapped_client.get_secret_value(SecretId=secret_id)
         except client.wrapped_client.exceptions.ResourceNotFoundException:
             # A secret created by one tool and populated by another has no
             # version yet, which AWS reports as not found rather than empty.
             raise CredentialsSourceError(
-                f"Secret {self._secret_id} exists but has no value yet"
+                f"Secret {secret_id} exists but has no value yet"
             )
         raw = response.get("SecretString")
         if raw is None:
-            raw = self._decode_binary(response, self._secret_id)
+            raw = self._decode_binary(response, secret_id)
         # Kept distinct from the cases above: AWS allows a whitespace-only
         # value, which isn't a missing or binary value either.
         if not raw.strip():
             raise CredentialsSourceError(
-                f"Secret {self._secret_id} exists but has no value yet"
+                f"Secret {secret_id} exists but has no value yet"
             )
         if self._base64_encoded:
-            raw = self._decode_base64(raw, self._secret_id)
-        return self._parse(
-            raw,
-            f"AWS Secrets Manager secret {self._secret_id}",
-            base64_decoded=self._base64_encoded,
-        )
+            raw = self._decode_base64(raw, secret_id)
+        return raw
 
     @staticmethod
     def _decode_binary(response: Dict[str, Any], secret_id: str) -> str:

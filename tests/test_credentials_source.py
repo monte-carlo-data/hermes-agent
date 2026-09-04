@@ -29,21 +29,29 @@ class ResourceNotFound(Exception):
     """Stands in for botocore's dynamically generated exception class."""
 
 
+def _proxy_client_mock() -> Mock:
+    """A `Mock(spec=SecretsManagerProxyClient)` with the ASM exception wired.
+
+    Mock(spec=...) leaves attributes reached through other attributes
+    unspecced, so client.wrapped_client.exceptions.ResourceNotFoundException
+    would otherwise be a plain Mock, unusable in an `except` clause.
+    """
+    client = Mock(spec=SecretsManagerProxyClient)
+    client.wrapped_client.exceptions.ResourceNotFoundException = ResourceNotFound
+    return client
+
+
 def _asm_client(*side_effects):
     """Proxy-client mock returning each value from get_secret_value.
 
     A plain string becomes a SecretString response; pass a dict to control
     the whole response, or an exception to have it raised.
     """
-    client = Mock(spec=SecretsManagerProxyClient)
+    client = _proxy_client_mock()
     client.wrapped_client.get_secret_value.side_effect = [
         value if isinstance(value, (dict, BaseException)) else {"SecretString": value}
         for value in side_effects
     ]
-    # Mock(spec=...) leaves attributes reached through other attributes
-    # unspecced, so client.wrapped_client.exceptions.ResourceNotFoundException
-    # would otherwise be a plain Mock, unusable in an `except` clause.
-    client.wrapped_client.exceptions.ResourceNotFoundException = ResourceNotFound
     return client
 
 
@@ -306,6 +314,214 @@ class AwsSecretsManagerFailureBackoffTests(TestCase):
         source = _asm_source(client, cache_ttl_seconds=0)
         self.assertEqual(_CREDS, source.read())
         self.assertEqual(_CREDS, source.read())
+
+
+class AwsSecretsManagerPerFieldTests(TestCase):
+    """One secret per credential field, for one-value-per-secret conventions."""
+
+    _SECRET_IDS = {
+        "client_id": "mcd/agent/client-id",
+        "client_secret": "mcd/agent/client-secret",
+    }
+
+    @staticmethod
+    def _client(values):
+        client = _proxy_client_mock()
+        client.wrapped_client.get_secret_value.side_effect = lambda SecretId: {
+            "SecretString": values[SecretId]
+        }
+        return client
+
+    def _source(self, client, **kwargs):
+        source = AwsSecretsManagerCredentialsSource(
+            secret_ids=dict(self._SECRET_IDS), **kwargs
+        )
+        source._client = client
+        return source
+
+    def test_assembles_the_credential_from_one_secret_per_field(self):
+        source = self._source(
+            self._client(
+                {
+                    "mcd/agent/client-id": "test-client-id",
+                    "mcd/agent/client-secret": "test-client-secret",
+                }
+            )
+        )
+        self.assertEqual(_CREDS, source.read())
+
+    def test_values_are_stripped(self):
+        # These easily pick up a trailing newline from a file or a paste.
+        source = self._source(
+            self._client(
+                {
+                    "mcd/agent/client-id": "test-client-id\n",
+                    "mcd/agent/client-secret": "  test-client-secret\n",
+                }
+            )
+        )
+        self.assertEqual(_CREDS, source.read())
+
+    def test_base64_encoded_values_are_decoded_and_stripped(self):
+        # The trailing newline lives inside the encoded payload, so this pins
+        # decode-then-strip: _read_secret decodes, _fetch_fields strips.
+        source = self._source(
+            self._client(
+                {
+                    "mcd/agent/client-id": base64.b64encode(
+                        b"test-client-id\n"
+                    ).decode(),
+                    "mcd/agent/client-secret": base64.b64encode(
+                        b"test-client-secret"
+                    ).decode(),
+                }
+            ),
+            base64_encoded=True,
+        )
+        self.assertEqual(_CREDS, source.read())
+
+    def test_blank_secret_raises_naming_the_field(self):
+        source = self._source(
+            self._client(
+                {
+                    "mcd/agent/client-id": "test-client-id",
+                    "mcd/agent/client-secret": "   \n",
+                }
+            )
+        )
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("client_secret", str(ctx.exception))
+        self.assertIn("mcd/agent/client-secret", str(ctx.exception))
+
+    def test_missing_secret_version_raises_naming_the_secret_and_field(self):
+        client = _proxy_client_mock()
+
+        def get_secret_value(SecretId):
+            if SecretId == "mcd/agent/client-secret":
+                raise ResourceNotFound("no version")
+            return {"SecretString": "test-client-id"}
+
+        client.wrapped_client.get_secret_value.side_effect = get_secret_value
+        source = self._source(client)
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("mcd/agent/client-secret", str(ctx.exception))
+        self.assertIn("client_secret", str(ctx.exception))
+
+    def test_describes_fields_and_secret_ids_without_secret_values(self):
+        source = AwsSecretsManagerCredentialsSource(
+            secret_ids=dict(self._SECRET_IDS), region="us-east-1"
+        )
+        self.assertEqual(
+            {
+                ATTR_NAME_SOURCE: SOURCE_AWS_SECRETS_MANAGER,
+                ATTR_NAME_SECRET_ID: (
+                    "client_id=mcd/agent/client-id, "
+                    "client_secret=mcd/agent/client-secret"
+                ),
+                ATTR_NAME_REGION: "us-east-1",
+            },
+            source.describe(),
+        )
+
+    def test_no_fields_is_rejected(self):
+        with self.assertRaises(ValueError):
+            AwsSecretsManagerCredentialsSource(secret_ids={})
+
+    def test_one_secret_and_per_field_secrets_together_are_rejected(self):
+        # The two shapes are alternatives, so the constructor takes exactly
+        # one. The chart rejects the combination earlier; this is the backstop.
+        with self.assertRaises(ValueError):
+            AwsSecretsManagerCredentialsSource(
+                secret_id="mcd/agent", secret_ids=dict(self._SECRET_IDS)
+            )
+
+    def test_second_read_inside_ttl_is_served_from_cache(self):
+        client = self._client(
+            {
+                "mcd/agent/client-id": "test-client-id",
+                "mcd/agent/client-secret": "test-client-secret",
+            }
+        )
+        source = self._source(client)
+        source.read()
+        source.read()
+        # Two calls for the first read, none for the second.
+        self.assertEqual(2, client.wrapped_client.get_secret_value.call_count)
+
+    def test_every_field_is_refreshed_together(self):
+        # The whole credential refreshes as a unit, so no field can be served
+        # from a different refresh than its siblings.
+        client = self._client(
+            {
+                "mcd/agent/client-id": "test-client-id",
+                "mcd/agent/client-secret": "test-client-secret",
+            }
+        )
+        source = self._source(client, cache_ttl_seconds=0)
+        source.read()
+        source.read()
+        self.assertEqual(4, client.wrapped_client.get_secret_value.call_count)
+        self.assertEqual(
+            ["mcd/agent/client-id", "mcd/agent/client-secret"] * 2,
+            [
+                c.kwargs["SecretId"]
+                for c in client.wrapped_client.get_secret_value.call_args_list
+            ],
+        )
+
+    def test_refresh_failure_serves_cached_value(self):
+        client = _proxy_client_mock()
+        values = {
+            "mcd/agent/client-id": "test-client-id",
+            "mcd/agent/client-secret": "test-client-secret",
+        }
+        failing = {"now": False}
+
+        def get_secret_value(SecretId):
+            if failing["now"]:
+                raise RuntimeError("throttled")
+            return {"SecretString": values[SecretId]}
+
+        client.wrapped_client.get_secret_value.side_effect = get_secret_value
+        source = self._source(client, cache_ttl_seconds=0)
+        self.assertEqual(_CREDS, source.read())
+        failing["now"] = True
+        self.assertEqual(_CREDS, source.read())
+        self.assertIn("throttled", source._last_failure)
+
+    def test_sustained_failure_from_cold_cache_backs_off(self):
+        client = _proxy_client_mock()
+        client.wrapped_client.get_secret_value.side_effect = RuntimeError(
+            "access denied"
+        )
+        source = self._source(client)
+
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            source.read()
+        self.assertIn("access denied", str(ctx.exception))
+
+        for _ in range(19):
+            with self.assertRaises(CredentialsSourceError):
+                source.read()
+
+        self.assertLessEqual(client.wrapped_client.get_secret_value.call_count, 2)
+
+    @patch(
+        "apollo.integrations.aws.asm_proxy_client.SecretsManagerProxyClient",
+        autospec=True,
+    )
+    def test_one_client_is_shared_across_fields(self, mock_client_cls):
+        mock_client_cls.return_value.wrapped_client.get_secret_value.return_value = {
+            "SecretString": "value"
+        }
+        source = AwsSecretsManagerCredentialsSource(
+            secret_ids=dict(self._SECRET_IDS), region="us-west-2"
+        )
+        mock_client_cls.assert_not_called()
+        source.read()
+        mock_client_cls.assert_called_once_with(credentials={"aws_region": "us-west-2"})
 
 
 class AwsSecretsManagerEncodingTests(TestCase):

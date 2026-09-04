@@ -310,6 +310,60 @@ EOF
 assert_success "ASM without a region" "${ASM_WITHOUT_REGION}" \
   --absent "MCD_AWS_SECRET_REGION"
 
+# One secret per credential field: one env var each, named after the field.
+KEY_TOKEN_ASM_FIELDS="${TMP_DIR}/key_token_asm_fields.yaml"
+cat >"${KEY_TOKEN_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_success "key/token via one ASM secret per field" "${KEY_TOKEN_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_MCD_ID" "MCD_AWS_SECRET_ID_MCD_TOKEN" \
+    "example-mcd-id-secret" "example-mcd-token-secret" \
+  --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
+
+OAUTH_ASM_FIELDS="${TMP_DIR}/oauth_asm_fields.yaml"
+cat >"${OAUTH_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field" "${OAUTH_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+    "example-client-id-secret" "example-client-secret-secret" \
+  --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret" "kind: ExternalSecret"
+
+# No `enabled` key at all: the per-field terms in hermes.oauth.enabled must
+# still select OAuth.
+OAUTH_ASM_FIELDS_NO_ENABLED="${TMP_DIR}/oauth_asm_fields_no_enabled.yaml"
+cat >"${OAUTH_ASM_FIELDS_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field, no enabled key" "${OAUTH_ASM_FIELDS_NO_ENABLED}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+  --absent "MCD_TOKEN_FILE_PATH"
+
+ASM_FIELDS_WITH_REGION="${TMP_DIR}/asm_fields_with_region.yaml"
+cat >"${ASM_FIELDS_WITH_REGION}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    region: us-east-1
+EOF
+assert_success "one ASM secret per field, with a region" "${ASM_FIELDS_WITH_REGION}" \
+  --present "MCD_AWS_SECRET_REGION"
+
 ASM_BASE64="${TMP_DIR}/asm_base64.yaml"
 cat >"${ASM_BASE64}" <<'EOF'
 skipExternalSecrets: true
@@ -332,6 +386,18 @@ oauthSecret:
 EOF
 assert_success "OAuth ASM values marked base64-encoded" "${OAUTH_ASM_BASE64}" \
   --present "MCD_AWS_SECRET_BASE64_ENCODED"
+
+ASM_BASE64_FIELDS="${TMP_DIR}/asm_base64_fields.yaml"
+cat >"${ASM_BASE64_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    base64Encoded: true
+EOF
+assert_success "per-field ASM values marked base64-encoded" "${ASM_BASE64_FIELDS}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED" "MCD_AWS_SECRET_ID_MCD_ID"
 
 # Decoding is opt-in, so the env var must be absent unless asked for.
 assert_success "ASM without base64Encoded" "${KEY_TOKEN_ASM}" \
@@ -357,8 +423,26 @@ assert_notes "notes name base64-encoded OAuth values" "${OAUTH_ASM_BASE64}" \
   --present "(base64-encoded)"
 
 assert_notes "notes stay quiet without base64Encoded" "${KEY_TOKEN_ASM}" \
-  --present "read from AWS Secrets Manager" \
+  --present "read from AWS Secrets Manager" "that secret" \
   --absent "(base64-encoded)"
+
+assert_notes "notes list every per-field secret" "${OAUTH_ASM_FIELDS}" \
+  --present "example-client-id-secret (client_id)" \
+    "example-client-secret-secret (client_secret)" "each of those secrets"
+# This shape creates no Kubernetes Secret either, so it must reject the
+# collectors for the same reason.
+ASM_FIELDS_COLLECTORS="${TMP_DIR}/asm_fields_collectors.yaml"
+cat >"${ASM_FIELDS_COLLECTORS}" <<'EOF'
+skipExternalSecrets: true
+metricsCollector:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "collectors + per-field ASM: metrics collector rejected" "${ASM_FIELDS_COLLECTORS}" \
+  "metricsCollector.enabled is true"
 
 MANUAL_KEY_TOKEN="${TMP_DIR}/manual_key_token.yaml"
 cat >"${MANUAL_KEY_TOKEN}" <<'EOF'
@@ -509,6 +593,80 @@ tokenSecret:
 EOF
 assert_failure "tokenSecret.awsSecretsManager with region but no secretId" "${ASM_REGION_NO_SECRET_ID}" \
   "secretId"
+
+ASM_BOTH_SHAPES="${TMP_DIR}/asm_both_shapes.yaml"
+cat >"${ASM_BOTH_SHAPES}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "ASM secretId together with per-field secrets" "${ASM_BOTH_SHAPES}" \
+  "sets both secretId and"
+
+# A half-configured block must not fall back: it still selects its method,
+# and fails naming the missing key.
+ASM_FIELDS_PARTIAL_TOKEN="${TMP_DIR}/asm_fields_partial_token.yaml"
+cat >"${ASM_FIELDS_PARTIAL_TOKEN}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+EOF
+assert_failure "per-field ASM missing mcdTokenSecretId" "${ASM_FIELDS_PARTIAL_TOKEN}" \
+  "is missing mcdTokenSecretId"
+
+ASM_FIELDS_PARTIAL_OAUTH="${TMP_DIR}/asm_fields_partial_oauth.yaml"
+cat >"${ASM_FIELDS_PARTIAL_OAUTH}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_failure "per-field ASM missing clientIdSecretId" "${ASM_FIELDS_PARTIAL_OAUTH}" \
+  "is missing clientIdSecretId"
+
+# Pins that a half-configured block is rejected rather than falling back to
+# key/token auth. The missing-key message comes from the per-block key list
+# in hermes.auth.validate, keyed on the block name — it fires the same way
+# whether or not oauthSecret.enabled was ever set, so this does not exercise
+# the per-field terms in hermes.oauth.enabled (see the case above for that).
+ASM_FIELDS_PARTIAL_NO_ENABLED="${TMP_DIR}/asm_fields_partial_no_enabled.yaml"
+cat >"${ASM_FIELDS_PARTIAL_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+EOF
+assert_failure "per-field ASM missing a key with no oauthSecret.enabled" "${ASM_FIELDS_PARTIAL_NO_ENABLED}" \
+  "is missing clientSecretSecretId"
+
+ASM_FIELDS_WITH_REMOTEREF="${TMP_DIR}/asm_fields_with_remoteref.yaml"
+cat >"${ASM_FIELDS_WITH_REMOTEREF}" <<'EOF'
+tokenSecret:
+  remoteRef:
+    key: example-secret
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "per-field ASM together with remoteRef" "${ASM_FIELDS_WITH_REMOTEREF}" \
+  "one source"
+
+BOTH_METHODS_FIELDS="${TMP_DIR}/both_methods_fields.yaml"
+cat >"${BOTH_METHODS_FIELDS}" <<'EOF'
+oauthSecret:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "oauthSecret enabled with tokenSecret configured via per-field ASM keys" "${BOTH_METHODS_FIELDS}" \
+  "one authentication method at a time"
 
 # --- environment values files -------------------------------------------------
 

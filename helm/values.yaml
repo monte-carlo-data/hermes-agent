@@ -108,6 +108,9 @@ inProcessLogs:
 #   the usual way, which is what a same-region deployment wants.
 # awsSecretsManager.base64Encoded: decode every secret in this block as
 #   base64 before use — see helm/README.md.
+# awsSecretsManager.clientIdSecretId / .clientSecretSecretId: one secret per
+#   credential field, each holding a bare value rather than JSON — see
+#   helm/README.md.
 # tokenEndpoint: optional override for the OAuth token endpoint URL.
 #   Only needed for custom/private Cognito deployments — by default the
 #   agent derives the endpoint from container.backendServiceUrl.
@@ -134,6 +137,15 @@ inProcessLogs:
 # Secrets stored as binary are read without any extra configuration. See
 # helm/README.md.
 #
+# Or one secret per credential field, for deployments whose convention is one
+# value per secret. Each secret holds a bare value, not JSON. Prefer the single
+# secret above where the convention allows it — its rotation is atomic:
+# oauthSecret:
+#   enabled: true
+#   awsSecretsManager:
+#     clientIdSecretId: <secret-name-or-arn>
+#     clientSecretSecretId: <secret-name-or-arn>
+#
 # Manual path (skipExternalSecrets: true, mcd-oauth-secret created by kubectl):
 # oauthSecret:
 #   enabled: true
@@ -159,6 +171,12 @@ inProcessLogs:
 #   awsSecretsManager:
 #     secretId: <secret-name-or-arn>
 #     region: <optional-region-override>
+#
+# Or one secret per credential field, as for oauthSecret above:
+# tokenSecret:
+#   awsSecretsManager:
+#     mcdIdSecretId: <secret-name-or-arn>
+#     mcdTokenSecretId: <secret-name-or-arn>
 #
 # Manual path: omit tokenSecret entirely and set skipExternalSecrets: true —
 # create mcd-agent-token-secret yourself.

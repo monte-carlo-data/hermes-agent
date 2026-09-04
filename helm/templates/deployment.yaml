@@ -88,8 +88,18 @@ spec:
               value: {{ include "hermes.auth.mountPath" . }}/{{ include "hermes.auth.secretKey" . }}
             {{- end }}
             {{- if eq (include "hermes.auth.source" .) "awsSecretsManager" }}
+            {{- $fieldSecretIds := include "hermes.auth.awsFieldSecretIds" . }}
+            {{- if $fieldSecretIds }}
+            {{- /* The env var name is the credential field upper-cased, so
+                   adding a field needs no new literal here. */}}
+            {{- range $field, $secretId := ($fieldSecretIds | fromJson) }}
+            - name: MCD_AWS_SECRET_ID_{{ $field | upper }}
+              value: {{ $secretId | quote }}
+            {{- end }}
+            {{- else }}
             - name: {{ ternary "MCD_AWS_SECRET_ID_OAUTH" "MCD_AWS_SECRET_ID_KEY_TOKEN" $oauth }}
               value: {{ include "hermes.auth.awsSecretId" . | quote }}
+            {{- end }}
             {{- with (include "hermes.auth.awsRegion" .) }}
             - name: MCD_AWS_SECRET_REGION
               value: {{ . | quote }}

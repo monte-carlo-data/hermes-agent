@@ -20,15 +20,22 @@
      unknown key, so a mistyped `base64Encoded` silently reads the value
      as-is and surfaces much later as a parse failure. */}}
 {{- $base64 := include "hermes.auth.awsBase64Encoded" . -}}
+{{- $secretIds := include "hermes.auth.awsFieldSecretIds" . -}}
 Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
 {{ if eq $source "awsSecretsManager" }}
 Authenticating with {{ $method }}, read from AWS Secrets Manager{{ if $base64 }}
 (base64-encoded){{ end }}:
+{{- if $secretIds }}
+{{- range $field, $secretId := ($secretIds | fromJson) }}
+  {{ $secretId }} ({{ $field }})
+{{- end }}
+{{- else }}
   {{ include "hermes.auth.awsSecretId" . }}
+{{- end }}
 
-The agent's service account needs secretsmanager:GetSecretValue on that
-secret — see "Reading Credentials Directly from AWS Secrets Manager" in the
-chart README.
+The agent's service account needs secretsmanager:GetSecretValue on
+{{ ternary "each of those secrets" "that secret" (ne $secretIds "") }} — see "Reading Credentials Directly from AWS
+Secrets Manager" in the chart README.
 {{- else }}
 Authenticating with {{ $method }}, read from the Secret
   {{ include "hermes.auth.secretName" . }} (key: {{ include "hermes.auth.secretKey" . }}),
