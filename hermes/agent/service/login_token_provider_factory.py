@@ -46,14 +46,6 @@ ENV_AWS_SECRET_ID_KEY_TOKEN = "MCD_AWS_SECRET_ID_KEY_TOKEN"
 ENV_AWS_SECRET_REGION = "MCD_AWS_SECRET_REGION"
 ENV_AWS_SECRET_BASE64_ENCODED = "MCD_AWS_SECRET_BASE64_ENCODED"
 
-# Retired names, kept only to detect and flag them; delete this once the
-# deprecation window closes.
-_RETIRED_ENV_VARS = {
-    "MCD_OAUTH_AWS_SECRET_ID": ENV_AWS_SECRET_ID_OAUTH,
-    "MCD_TOKEN_AWS_SECRET_ID": ENV_AWS_SECRET_ID_KEY_TOKEN,
-    "MCD_AWS_SECRETS_MANAGER_REGION": ENV_AWS_SECRET_REGION,
-}
-
 
 def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     """Return the provider matching how this agent was configured.
@@ -101,13 +93,6 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
 
         logger.info(f"Getting MCD token from {token_source.describe()}")
         return TokenLoginTokenProvider(credentials_source=token_source)
-
-    # Presence, not value: reading it would tell us nothing more, and a
-    # `getenv` on a name containing SECRET makes CodeQL treat the name we log
-    # as the secret itself.
-    for retired, replacement in _RETIRED_ENV_VARS.items():
-        if retired in os.environ:
-            logger.error(f"{retired} is retired and no longer read; use {replacement}")
 
     logger.info("Getting MCD token from env vars")
     return LocalLoginTokenProvider()
