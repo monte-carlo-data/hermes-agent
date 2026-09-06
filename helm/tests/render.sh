@@ -23,23 +23,27 @@ set -euo pipefail
 # Usage: ./helm/tests/render.sh (run from anywhere; paths are resolved
 # relative to this script).
 #
-# Requires Helm >= 4 (assert_notes uses helm install --dry-run=client).
+# Runs on the Helm that packages the release (3.19.5). The NOTES cases need
+# Helm >= 4 and are skipped below that — see the note by the version check.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${CHART_DIR}/.." && pwd)"
 RELEASE_NAME="hermes-render-test"
 
-# assert_notes uses `helm install --dry-run=client`, which needs Helm >= 4 —
-# Helm 3 still reaches for the cluster's version in client mode without a
-# kubeconfig. `helm template` takes --kube-version but never renders
-# NOTES.txt, so there is no workaround short of requiring Helm 4.
+# The NOTES cases need Helm >= 4: they go through `helm install
+# --dry-run=client`, and Helm 3 still reaches for the cluster's version in
+# client mode without a kubeconfig. `helm template` takes --kube-version but
+# never renders NOTES.txt, so there is no way to assert the notes on 3.x.
+#
+# They are skipped rather than fatal, because CI renders with the version that
+# packages the release (3.19.5) — rendering only on a Helm nobody ships with
+# would let a 4-only construct pass CI and break Helm 3 users. The cost is that
+# NOTES assertions are not enforced in CI; run this on Helm 4 to get them.
 HELM_VERSION="$(helm version --template '{{.Version}}')"
+NOTES_SUPPORTED=true
 if [[ ! "${HELM_VERSION}" =~ ^v?4\. ]]; then
-  echo "render.sh requires Helm >= 4 (found ${HELM_VERSION}): assert_notes" >&2
-  echo "uses 'helm install --dry-run=client', which the NOTES.txt cases need" >&2
-  echo "and which Helm 3 cannot run without a real cluster connection." >&2
-  exit 1
+  NOTES_SUPPORTED=false
 fi
 
 TMP_DIR="$(mktemp -d)"
@@ -47,6 +51,7 @@ trap 'rm -rf "${TMP_DIR}"' EXIT
 
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 
 # --- output helpers --------------------------------------------------------
 
@@ -54,6 +59,12 @@ pass() {
   local name="$1"
   PASS_COUNT=$((PASS_COUNT + 1))
   echo "[PASS] ${name}"
+}
+
+skip() {
+  local name="$1" reason="$2"
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  echo "[SKIP] ${name} — ${reason}"
 }
 
 fail() {
@@ -182,6 +193,10 @@ render_notes() {
 # assert_notes <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--set-string KEY=VALUE]...
 # Same contract as assert_success, against the release notes.
 assert_notes() {
+  if [[ "${NOTES_SUPPORTED}" != true ]]; then
+    skip "$1" "needs Helm >= 4, found ${HELM_VERSION}"
+    return
+  fi
   assert_rendered render_notes "$@"
 }
 
@@ -529,7 +544,10 @@ done
 TOTAL=$((PASS_COUNT + FAIL_COUNT))
 echo
 echo "==============================================="
-echo "render.sh: ${PASS_COUNT}/${TOTAL} passed, ${FAIL_COUNT} failed"
+echo "render.sh: ${PASS_COUNT}/${TOTAL} passed, ${FAIL_COUNT} failed, ${SKIP_COUNT} skipped"
+if [[ ${SKIP_COUNT} -ne 0 ]]; then
+  echo "  NOTES cases need Helm >= 4 (found ${HELM_VERSION})"
+fi
 echo "==============================================="
 
 if [[ ${FAIL_COUNT} -ne 0 ]]; then
