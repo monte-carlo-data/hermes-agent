@@ -159,6 +159,10 @@ def _field_secret_ids(env_by_field: Dict[str, str]) -> Dict[str, str]:
     A partially configured set is passed through rather than rejected: the
     token provider then reports the field it could not fill. The chart rejects
     it earlier, naming the missing values key.
+
+    So in a hand-written environment a single one of these vars selects its
+    method and then fails authentication, deliberately: the alternative is
+    silently authenticating as the other method.
     """
     return {
         field: secret_id

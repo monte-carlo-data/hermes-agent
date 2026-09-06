@@ -56,7 +56,9 @@ class CredentialsSourceError(Exception):
     """The credential could not be read, or is not usable as JSON."""
 
 
-def _base64_hint(raw: str, already_decoded: bool = False) -> str:
+def _base64_hint(
+    raw: str, already_decoded: bool = False, can_enable_decoding: bool = False
+) -> str:
     """Return a hint when `raw` is base64 that decodes to a JSON object, else "".
 
     Hinted rather than decoded on sight: base64 text is a valid string value,
@@ -66,6 +68,9 @@ def _base64_hint(raw: str, already_decoded: bool = False) -> str:
 
     `already_decoded` says the caller has decoded once, which changes the
     remedy: the value is doubly encoded, not merely encoded.
+    `can_enable_decoding` says this source has a decoding flag to point at —
+    only AWS Secrets Manager does, so file sources are offered the one remedy
+    that exists for them.
     """
     candidate = "".join(raw.split())
     # Below this, a base64-looking string is far more likely a short plain
@@ -87,10 +92,10 @@ def _base64_hint(raw: str, already_decoded: bool = False) -> str:
             " — the value is still base64 after decoding once, so it looks "
             "doubly encoded; store it encoded at most once"
         )
-    return (
-        " — the value looks like base64-encoded JSON. Store the decoded JSON "
-        "instead, or enable base64 decoding for this credential source"
-    )
+    remedy = " — the value looks like base64-encoded JSON. Store the decoded JSON"
+    if can_enable_decoding:
+        return f"{remedy} instead, or enable base64 decoding for this credential source"
+    return f"{remedy} instead"
 
 
 class CredentialsSource(ABC):
@@ -98,6 +103,10 @@ class CredentialsSource(ABC):
 
     #: Non-secret label naming this kind of source.
     source_name: str
+
+    #: Whether this source can be told to base64-decode the stored value, so a
+    #: parse failure only offers that remedy where the flag exists.
+    can_enable_base64_decoding: bool = False
 
     @abstractmethod
     def read(self) -> Dict[str, Any]:
@@ -112,14 +121,15 @@ class CredentialsSource(ABC):
         """
         return {ATTR_NAME_SOURCE: self.source_name}
 
-    @staticmethod
-    def _parse(raw: str, origin: str, base64_decoded: bool = False) -> Dict[str, Any]:
+    def _parse(
+        self, raw: str, origin: str, base64_decoded: bool = False
+    ) -> Dict[str, Any]:
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
             raise CredentialsSourceError(
                 f"Credentials are not valid JSON: {origin}"
-                f"{_base64_hint(raw, base64_decoded)}"
+                f"{_base64_hint(raw, base64_decoded, self.can_enable_base64_decoding)}"
             )
         if not isinstance(data, dict):
             raise CredentialsSourceError(f"Credentials must be a JSON object: {origin}")
@@ -189,6 +199,7 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
     """
 
     source_name = SOURCE_AWS_SECRETS_MANAGER
+    can_enable_base64_decoding = True
 
     def __init__(
         self,
@@ -352,10 +363,13 @@ class AwsSecretsManagerCredentialsSource(CredentialsSource):
         try:
             response = client.wrapped_client.get_secret_value(SecretId=secret_id)
         except client.wrapped_client.exceptions.ResourceNotFoundException:
-            # A secret created by one tool and populated by another has no
-            # version yet, which AWS reports as not found rather than empty.
+            # AWS raises this both for a secret that does not exist and for one
+            # created but not yet populated, so the message cannot claim
+            # either: naming only the second sends a typo'd id or wrong region
+            # off to check the populating tool.
             raise CredentialsSourceError(
-                f"Secret {secret_id} exists but has no value yet"
+                f"Secret {secret_id} was not found — check the id and "
+                f"region, or it may exist with no value yet"
             )
         raw = response.get("SecretString")
         if raw is None:

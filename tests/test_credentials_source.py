@@ -102,6 +102,17 @@ class FileCredentialsSourceTests(TestCase):
             FileCredentialsSource(self._path).read()
         self.assertIn("base64", str(ctx.exception))
 
+    def test_file_source_is_not_offered_a_decoding_flag_it_does_not_have(self):
+        # MCD_AWS_SECRET_BASE64_ENCODED only reaches the Secrets Manager
+        # branch, so telling a file operator to enable decoding names a knob
+        # that does not exist for them.
+        with open(self._path, "w") as f:
+            f.write(base64.b64encode(json.dumps(_CREDS).encode()).decode())
+        with self.assertRaises(CredentialsSourceError) as ctx:
+            FileCredentialsSource(self._path).read()
+        self.assertIn("Store the decoded JSON", str(ctx.exception))
+        self.assertNotIn("enable base64 decoding", str(ctx.exception))
+
     def test_base64_of_a_json_scalar_is_not_reported_as_base64(self):
         # _parse rejects anything but an object, so pointing at a decode here
         # would just swap one error for another.
@@ -606,12 +617,18 @@ class AwsSecretsManagerEncodingTests(TestCase):
             source.read()
         self.assertIn("neither a string nor a binary", str(ctx.exception))
 
-    def test_missing_secret_version_is_not_reported_as_binary(self):
-        source = _asm_source(_asm_client(ResourceNotFound("no version")))
+    def test_not_found_names_both_causes_it_cannot_distinguish(self):
+        # AWS raises ResourceNotFoundException for a secret that does not
+        # exist and for one created but not yet populated, so claiming only
+        # the second sends a typo'd id or wrong region after the wrong thing.
+        source = _asm_source(_asm_client(ResourceNotFound("not found")))
         with self.assertRaises(CredentialsSourceError) as ctx:
             source.read()
-        self.assertIn("no value yet", str(ctx.exception))
-        self.assertNotIn("binary", str(ctx.exception))
+        message = str(ctx.exception)
+        self.assertIn("was not found", message)
+        self.assertIn("region", message)
+        self.assertIn("no value yet", message)
+        self.assertNotIn("binary", message)
 
     def test_base64_decoding_is_reported(self):
         source = AwsSecretsManagerCredentialsSource(
