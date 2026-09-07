@@ -7,6 +7,9 @@ orbs:
 defaults:
   - &install_helm_client
     helm/install_helm_client:
+      # The version that packages and pushes the shipped chart, and the one the
+      # render matrix uses — so the chart is never only render-tested on a Helm
+      # nobody releases with. Moving to 4.x is its own change.
       version: 3.19.5
 
 commands:
@@ -95,6 +98,9 @@ jobs:
       image: ubuntu-2204:current
     steps:
       - checkout
+      # Shared anchor deliberately: the matrix should render with the same Helm
+      # that packages the release. render.sh skips its NOTES cases on 3.x — see
+      # the note there.
       - *install_helm_client
       - run:
           name: Render Helm chart test matrix

@@ -2,15 +2,13 @@
 
 Two independent choices combine here: the authentication *method* (OAuth
 client credentials or an MCD key/token pair) and the *source* the credential is
-read from (a file, or AWS Secrets Manager). The precedence encoded below matters
-for hand-written environments — Docker Compose, ECS — where nothing enforces
-that only one combination is configured. It is not what makes these branches
-reachable when deployed via the helm chart: the chart's own validation rejects
-two sources in one block and both methods carrying a source, and it renders
-only the selected method's env vars.
+read from (a file, or AWS Secrets Manager).
 
-Environment is read inside the function rather than at module import so tests
-can patch it.
+The precedence below matters only in hand-written environments — Docker
+Compose, ECS: the chart rejects two sources in one block and both methods
+carrying a source, and renders only the selected method's vars.
+
+Environment is read inside the function, not at import, so tests can patch it.
 """
 
 import logging
@@ -33,28 +31,36 @@ from hermes.agent.service.token_login_token_provider import TokenLoginTokenProvi
 
 logger = logging.getLogger(__name__)
 
+# File sources are named method-first; AWS Secrets Manager sources
+# source-first, so every secret the agent reads shares one prefix. The file
+# vars keep their names because they are the path almost every deployment
+# uses and are documented for Docker.
 ENV_OAUTH_FILE_PATH = "MCD_OAUTH_FILE_PATH"
-ENV_OAUTH_AWS_SECRET_ID = "MCD_OAUTH_AWS_SECRET_ID"
-ENV_OAUTH_TOKEN_ENDPOINT = "MCD_OAUTH_TOKEN_ENDPOINT"
 ENV_TOKEN_FILE_PATH = "MCD_TOKEN_FILE_PATH"
-ENV_TOKEN_AWS_SECRET_ID = "MCD_TOKEN_AWS_SECRET_ID"
-ENV_AWS_SECRETS_MANAGER_REGION = "MCD_AWS_SECRETS_MANAGER_REGION"
+ENV_OAUTH_TOKEN_ENDPOINT = "MCD_OAUTH_TOKEN_ENDPOINT"
+
+# `SecretId` is AWS's own term for what these hold: a secret's name or its
+# full ARN.
+ENV_AWS_SECRET_ID_OAUTH = "MCD_AWS_SECRET_ID_OAUTH"
+ENV_AWS_SECRET_ID_KEY_TOKEN = "MCD_AWS_SECRET_ID_KEY_TOKEN"
+ENV_AWS_SECRET_REGION = "MCD_AWS_SECRET_REGION"
+ENV_AWS_SECRET_BASE64_ENCODED = "MCD_AWS_SECRET_BASE64_ENCODED"
 
 
 def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     """Return the provider matching how this agent was configured.
 
-    OAuth wins over key/token when both are configured. This tie-break exists
-    for the same hand-written-environment case as the source precedence (see
-    the module docstring) — it is unreachable when deployed via the chart,
-    which never renders both methods' env vars at once.
+    OAuth wins over key/token when both are configured — same
+    hand-written-environment case as the source precedence above.
     """
-    region = os.getenv(ENV_AWS_SECRETS_MANAGER_REGION)
+    region = os.getenv(ENV_AWS_SECRET_REGION)
+    base64_encoded = os.getenv(ENV_AWS_SECRET_BASE64_ENCODED, "").lower() == "true"
 
     oauth_source = _build_source(
         file_path=os.getenv(ENV_OAUTH_FILE_PATH),
-        aws_secret_id=os.getenv(ENV_OAUTH_AWS_SECRET_ID),
+        aws_secret_id=os.getenv(ENV_AWS_SECRET_ID_OAUTH),
         region=region,
+        base64_encoded=base64_encoded,
         label="OAuth credentials",
     )
     if oauth_source:
@@ -71,18 +77,17 @@ def build_login_token_provider(backend_service_url: str) -> LoginTokenProvider:
     token_file_path = os.getenv(ENV_TOKEN_FILE_PATH)
     token_source = _build_source(
         file_path=token_file_path,
-        aws_secret_id=os.getenv(ENV_TOKEN_AWS_SECRET_ID),
+        aws_secret_id=os.getenv(ENV_AWS_SECRET_ID_KEY_TOKEN),
         region=region,
+        base64_encoded=base64_encoded,
         label="Key/token credentials",
     )
     if token_source:
         if isinstance(token_source, FileCredentialsSource):
-            # Deliberately agent-common's provider rather than
-            # TokenLoginTokenProvider over this same source: this is the path
-            # almost every deployment uses, and switching it would rename the
-            # `token_file_path` attribute that support tooling reads out of
-            # reachability results. The two report the same authentication
-            # method.
+            # agent-common's provider rather than TokenLoginTokenProvider over
+            # the same source: switching the path almost every deployment uses
+            # would rename the `token_file_path` attribute support tooling
+            # reads out of reachability results.
             logger.info(f"Getting MCD token from file: {token_source.file_path}")
             return FileLoginTokenProvider(file_path=token_source.file_path)
 
@@ -97,12 +102,13 @@ def _build_source(
     file_path: Optional[str],
     aws_secret_id: Optional[str],
     region: Optional[str],
+    base64_encoded: bool,
     label: str,
 ) -> Optional[CredentialsSource]:
     """Return the configured source, preferring AWS Secrets Manager.
 
-    Returning None means this method was not configured at all, which is how
-    the caller decides between methods.
+    None means this method was not configured at all, which is how the caller
+    decides between methods.
     """
     if aws_secret_id:
         if file_path:
@@ -111,7 +117,7 @@ def _build_source(
                 f"Manager secret; reading them from AWS Secrets Manager"
             )
         return AwsSecretsManagerCredentialsSource(
-            secret_id=aws_secret_id, region=region
+            secret_id=aws_secret_id, region=region, base64_encoded=base64_encoded
         )
     if file_path:
         return FileCredentialsSource(file_path=file_path)

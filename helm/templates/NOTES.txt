@@ -16,10 +16,15 @@
 {{- $oauth := eq (include "hermes.auth.method" .) "oauth" -}}
 {{- $source := include "hermes.auth.source" . -}}
 {{- $method := ternary "OAuth client credentials" "an MCD key/token pair" $oauth -}}
+{{/* Named because nothing else confirms the flag took effect: Helm ignores an
+     unknown key, so a mistyped `base64Encoded` silently reads the value
+     as-is and surfaces much later as a parse failure. */}}
+{{- $base64 := include "hermes.auth.awsBase64Encoded" . -}}
 Monte Carlo Generic Agent deployed to namespace {{ $ns }}.
 {{ if eq $source "awsSecretsManager" }}
-Authenticating with {{ $method }}, read from AWS Secrets Manager:
-  {{ (ternary .Values.oauthSecret .Values.tokenSecret $oauth).awsSecretsManager.secretId }}
+Authenticating with {{ $method }}, read from AWS Secrets Manager{{ if $base64 }}
+(base64-encoded){{ end }}:
+  {{ include "hermes.auth.awsSecretId" . }}
 
 The agent's service account needs secretsmanager:GetSecretValue on that
 secret — see "Reading Credentials Directly from AWS Secrets Manager" in the
