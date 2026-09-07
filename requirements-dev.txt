@@ -43,7 +43,7 @@ packaging==26.2
     #   wheel
 pathspec==1.1.1
     # via black
-pip-tools==7.5.2
+pip-tools==7.6.1
     # via -r requirements-dev.in
 platformdirs==4.10.0
     # via

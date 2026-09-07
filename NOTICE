@@ -19,10 +19,10 @@ Monte Carlo components (first-party, not third-party dependencies)
 
 agent-base - https://github.com/monte-carlo-data/agent-base.git@v0.0.6
 agent-common - https://github.com/monte-carlo-data/agent-common.git@v0.2.9
-mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.11.1
+mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.12.9
 
 ==============================================================================
-Third-party Python packages (121)
+Third-party Python packages (122)
 ==============================================================================
 
 asn1crypto                   MIT  <https://github.com/wbond/asn1crypto>
@@ -34,6 +34,7 @@ azure-keyvault-secrets       MIT License  <https://github.com/Azure/azure-sdk-fo
 azure-mgmt-core              MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-mgmt-core>
 azure-mgmt-storage           MIT License  <https://github.com/Azure/azure-sdk-for-python>
 azure-storage-blob           MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/storage/azure-storage-blob>
+backports-zstd               PSF-2.0  <https://github.com/rogdham/backports.zstd>
 bitarray                     PSF-2.0  <https://github.com/ilanschnell/bitarray>
 blinker                      MIT License  <https://github.com/pallets-eco/blinker/>
 boto3                        Apache License 2.0  <https://github.com/boto/boto3>
@@ -46,7 +47,7 @@ certifi                      MPL-2.0  <https://github.com/certifi/python-certifi
 cffi                         MIT  <https://github.com/python-cffi/cffi>
 charset-normalizer           MIT  <https://github.com/jawah/charset_normalizer>
 click                        BSD-3-Clause  <https://github.com/pallets/click/>
-clickhouse-connect           Apache License 2.0  <https://github.com/ClickHouse/clickhouse-connect>
+clickhouse-connect           Apache-2.0  <https://github.com/ClickHouse/clickhouse-connect>
 cryptography                 Apache-2.0 OR BSD-3-Clause  <https://cryptography.io/en/latest/changelog/>
 databricks-sdk               Apache Software License  <https://databricks-sdk-py.readthedocs.io>
 databricks-sql-connector     Apache-2.0  <https://github.com/databricks/databricks-sql-python>
@@ -56,7 +57,7 @@ defusedxml                   PSFL  <https://github.com/tiran/defusedxml>
 duckdb                       MIT License  <https://github.com/duckdb/duckdb-python>
 et-xmlfile                   MIT  <https://foss.heptapod.net/openpyxl/et_xmlfile>
 filelock                     MIT  <https://github.com/tox-dev/py-filelock>
-flask                        BSD License  <https://github.com/pallets/flask/>
+flask                        BSD-3-Clause  <https://github.com/pallets/flask/>
 flask-compress               MIT  <https://github.com/colour-science/flask-compress>
 google-api-core              Apache 2.0  <https://github.com/googleapis/google-cloud-python/tree/main/packages/google-api-core>
 google-api-python-client     Apache 2.0  <https://github.com/googleapis/google-api-python-client/>

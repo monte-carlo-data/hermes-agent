@@ -362,6 +362,14 @@ In two common cases the role already exists and only its policy needs widening:
 
 Without the permission the agent starts and then fails to authenticate; the reachability test reports `no-token-id` (or `no-client-id`) alongside `credentials_source: aws_secrets_manager` and the secret id — or, for the per-field shape, each field and its secret id — it tried to read. A missing `kms:Decrypt` grant on a customer-managed KMS key surfaces the same way — the `AccessDeniedException` is indistinguishable from a missing `GetSecretValue` grant in the reachability test output.
 
+A missing `eks-pod-identity-agent` add-on fails differently, and the error names nothing recognizable. The Pod Identity webhook injects `AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.23/v1/credentials` as soon as an association exists, but that address is served by the add-on's pod on the same node. With the association created and the add-on absent, nothing answers, and the read fails as `Connect timeout on endpoint URL: "http://169.254.170.23/v1/credentials"` — a timeout, not an `AccessDenied`, and on an address that looks like a metadata service:
+
+```bash
+aws eks create-addon --cluster-name <cluster> --addon-name eks-pod-identity-agent
+```
+
+If the DaemonSet is already installed, check that it scheduled a pod onto the same node as the agent. The endpoint is node-local, so taints or selectors that keep the add-on off that node produce an identical timeout. Note also that the two mechanisms above are not additive: the injected `AWS_CONTAINER_CREDENTIALS_FULL_URI` takes precedence over IRSA's web-identity token in the AWS credential chain, so switching a cluster from Pod Identity to IRSA means deleting the association, not just adding the annotation.
+
 The source caches the credential for 15 minutes. Key/token reads the source on every request, so a rotated secret is picked up within that window without a restart — more promptly than the ESO path's default hourly refresh. OAuth only re-reads the source when its access token needs refreshing — roughly every 48 minutes with a one-hour token (the agent refreshes at about 80% of the token lifetime) — so for OAuth the token lifetime, not the 15-minute source cache, is the binding constraint on how quickly a rotation is picked up. Both are still faster than ESO's hourly default. A read failure with a cached credential in hand logs a warning and keeps using it, since it stays valid until rotation.
 
 Detaching the IAM policy does not stop a running agent: it keeps using its already-cached credential until the staleness bound expires, and only then fails to refresh. Revoking access at the backend (rotating the credential's counterpart there) is the effective lever if the agent must be cut off promptly.
