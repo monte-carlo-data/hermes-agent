@@ -96,7 +96,7 @@ cryptography==50.0.0
     #   snowflake-connector-python
 databricks-sdk==0.39.0
     # via mcd-agent
-databricks-sql-connector==4.2.5
+databricks-sql-connector==4.5.0
     # via mcd-agent
 dataclasses-json==0.6.7
     # via agent-base
@@ -190,7 +190,7 @@ idna==3.18
     #   mcd-agent
     #   requests
     #   snowflake-connector-python
-impyla==0.22.0
+impyla==0.24.0
     # via mcd-agent
 isodate==0.7.2
     # via
@@ -232,7 +232,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.12.8
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@mrostan/thrift-cve-impyla-databricks-bump
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
@@ -294,7 +294,9 @@ protobuf==5.29.6
 psycopg2-binary==2.9.12
     # via mcd-agent
 pure-sasl==0.6.2
-    # via thrift-sasl
+    # via
+    #   impyla
+    #   thrift-sasl
 pyarrow==23.0.1
     # via
     #   mcd-agent
@@ -381,11 +383,9 @@ simple-salesforce==1.12.6
     # via mcd-agent
 six==1.17.0
     # via
-    #   impyla
     #   presto-python-client
     #   python-dateutil
     #   sseclient
-    #   thrift
     #   thrift-sasl
 snowflake-connector-python==4.7.2
     # via mcd-agent
@@ -397,10 +397,11 @@ tableauserverclient==0.38
     # via mcd-agent
 teradatasql==20.0.0.68
     # via mcd-agent
-thrift==0.16.0
+thrift==0.24.0
     # via
     #   databricks-sql-connector
     #   impyla
+    #   mcd-agent
     #   thrift-sasl
 thrift-sasl==0.4.3
     # via impyla

@@ -1,6 +1,6 @@
 # When bumping this tag, also bump the matching apollo Python pin in requirements.in
 # so the runtime apt deps and the venv-installed apollo source agree on the version.
-FROM montecarlodata/agent:1.12.8-system-base AS base
+FROM montecarlodata/pre-release-agent:1.12.9rc3403-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
