@@ -22,17 +22,36 @@ set -euo pipefail
 #
 # Usage: ./helm/tests/render.sh (run from anywhere; paths are resolved
 # relative to this script).
+#
+# Runs on the Helm that packages the release (3.19.5). The NOTES cases need
+# Helm >= 4 and are skipped below that — see the note by the version check.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CHART_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${CHART_DIR}/.." && pwd)"
 RELEASE_NAME="hermes-render-test"
 
+# The NOTES cases need Helm >= 4: they go through `helm install
+# --dry-run=client`, and Helm 3 still reaches for the cluster's version in
+# client mode without a kubeconfig. `helm template` takes --kube-version but
+# never renders NOTES.txt, so there is no way to assert the notes on 3.x.
+#
+# They are skipped rather than fatal, because CI renders with the version that
+# packages the release (3.19.5) — rendering only on a Helm nobody ships with
+# would let a 4-only construct pass CI and break Helm 3 users. The cost is that
+# NOTES assertions are not enforced in CI; run this on Helm 4 to get them.
+HELM_VERSION="$(helm version --template '{{.Version}}')"
+NOTES_SUPPORTED=true
+if [[ ! "${HELM_VERSION}" =~ ^v?4\. ]]; then
+  NOTES_SUPPORTED=false
+fi
+
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
 PASS_COUNT=0
 FAIL_COUNT=0
+SKIP_COUNT=0
 
 # --- output helpers --------------------------------------------------------
 
@@ -40,6 +59,12 @@ pass() {
   local name="$1"
   PASS_COUNT=$((PASS_COUNT + 1))
   echo "[PASS] ${name}"
+}
+
+skip() {
+  local name="$1" reason="$2"
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  echo "[SKIP] ${name} — ${reason}"
 }
 
 fail() {
@@ -54,45 +79,54 @@ fail() {
 
 # --- rendering --------------------------------------------------------------
 
-# render <values-file>
+# render <values-file> [helm-arg]...
 # Renders the chart with the shared baseline values plus the case-specific
-# values file, and sets RENDER_OUT / RENDER_RC. Never aborts the script on a
-# non-zero helm exit (negative cases expect that).
+# values file and any extra helm arguments, and sets RENDER_OUT / RENDER_RC.
+# Never aborts the script on a non-zero helm exit (negative cases expect that).
 render() {
   local values_file="$1"
+  shift
   set +e
-  RENDER_OUT="$(helm template "${RELEASE_NAME}" "${CHART_DIR}" -f "${BASE_VALUES}" -f "${values_file}" 2>&1)"
+  RENDER_OUT="$(helm template "${RELEASE_NAME}" "${CHART_DIR}" -f "${BASE_VALUES}" -f "${values_file}" "$@" 2>&1)"
   RENDER_RC=$?
   set -e
 }
 
-# assert_success <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]...
-# Renders successfully, then asserts each --present pattern is a substring of
-# the output and each --absent pattern is not.
-assert_success() {
-  local name="$1" values_file="$2"
-  shift 2
+# assert_rendered <renderer-fn> <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--set-string KEY=VALUE]...
+# Calls <renderer-fn> <values-file> [--set-string args...], which must set
+# RENDER_OUT / RENDER_RC, then asserts each --present pattern is a substring
+# of the output and each --absent pattern is not. Shared by assert_success
+# and assert_notes so pattern matching only lives in one place.
+assert_rendered() {
+  local renderer="$1" name="$2" values_file="$3"
+  shift 3
   local -a present=()
   local -a absent=()
+  local -a set_args=()
   local mode="present"
   local arg
   for arg in "$@"; do
     case "${arg}" in
       --present) mode="present" ;;
       --absent) mode="absent" ;;
+      --set-string) mode="set-string" ;;
       *)
-        if [[ "${mode}" == "present" ]]; then
-          present+=("${arg}")
-        else
-          absent+=("${arg}")
-        fi
+        case "${mode}" in
+          present) present+=("${arg}") ;;
+          absent) absent+=("${arg}") ;;
+          set-string) set_args+=(--set-string "${arg}") ;;
+        esac
         ;;
     esac
   done
 
-  render "${values_file}"
+  "${renderer}" "${values_file}" "${set_args[@]}"
   if [[ ${RENDER_RC} -ne 0 ]]; then
-    fail "${name}" "helm template to succeed" "${RENDER_OUT}"
+    local success_expectation="helm template to succeed"
+    if [[ "${renderer}" == "render_notes" ]]; then
+      success_expectation="dry-run install to succeed"
+    fi
+    fail "${name}" "${success_expectation}" "${RENDER_OUT}"
     return
   fi
 
@@ -116,12 +150,21 @@ assert_success() {
   fi
 }
 
-# assert_failure <case-name> <values-file> <expected-substring>
+# assert_success <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--set-string KEY=VALUE]...
+# Renders successfully, then asserts each --present pattern is a substring of
+# the output and each --absent pattern is not.
+assert_success() {
+  assert_rendered render "$@"
+}
+
+# assert_failure <case-name> <values-file> <expected-substring> [helm-arg]...
 # Renders expecting a non-zero exit, and asserts the error output contains
-# the expected substring.
+# the expected substring. Trailing helm args are passed through, so a case can
+# reject something only reachable via --set-string.
 assert_failure() {
   local name="$1" values_file="$2" expected="$3"
-  render "${values_file}"
+  shift 3
+  render "${values_file}" "$@"
   if [[ ${RENDER_RC} -eq 0 ]]; then
     fail "${name}" "helm template to fail, containing: ${expected}" "${RENDER_OUT}"
     return
@@ -131,6 +174,30 @@ assert_failure() {
   else
     fail "${name}" "error output to contain: ${expected}" "${RENDER_OUT}"
   fi
+}
+
+# render_notes <values-file> [helm-arg]...
+# NOTES.txt is not part of `helm template` output, so notes cases go through a
+# client-side dry-run install instead. Sets RENDER_OUT / RENDER_RC, same as
+# render, so assert_rendered can drive either one.
+render_notes() {
+  local values_file="$1"
+  shift
+  set +e
+  RENDER_OUT="$(helm install "${RELEASE_NAME}" "${CHART_DIR}" --dry-run=client \
+    -f "${BASE_VALUES}" -f "${values_file}" "$@" 2>&1)"
+  RENDER_RC=$?
+  set -e
+}
+
+# assert_notes <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--set-string KEY=VALUE]...
+# Same contract as assert_success, against the release notes.
+assert_notes() {
+  if [[ "${NOTES_SUPPORTED}" != true ]]; then
+    skip "$1" "needs Helm >= 4, found ${HELM_VERSION}"
+    return
+  fi
+  assert_rendered render_notes "$@"
 }
 
 # lint_and_template <path-to-values-file>
@@ -222,7 +289,7 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "key/token via AWS Secrets Manager" "${KEY_TOKEN_ASM}" \
-  --present "MCD_TOKEN_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_KEY_TOKEN" \
   --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
 
 OAUTH_ASM="${TMP_DIR}/oauth_asm.yaml"
@@ -234,7 +301,7 @@ oauthSecret:
     secretId: example-oauth-secret-id
 EOF
 assert_success "OAuth via AWS Secrets Manager" "${OAUTH_ASM}" \
-  --present "MCD_OAUTH_AWS_SECRET_ID" \
+  --present "MCD_AWS_SECRET_ID_OAUTH" \
   --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret"
 
 ASM_WITH_REGION="${TMP_DIR}/asm_with_region.yaml"
@@ -246,7 +313,7 @@ tokenSecret:
     region: us-east-1
 EOF
 assert_success "ASM with a region" "${ASM_WITH_REGION}" \
-  --present "MCD_AWS_SECRETS_MANAGER_REGION"
+  --present "MCD_AWS_SECRET_REGION"
 
 ASM_WITHOUT_REGION="${TMP_DIR}/asm_without_region.yaml"
 cat >"${ASM_WITHOUT_REGION}" <<'EOF'
@@ -256,7 +323,141 @@ tokenSecret:
     secretId: example-secret-id
 EOF
 assert_success "ASM without a region" "${ASM_WITHOUT_REGION}" \
-  --absent "MCD_AWS_SECRETS_MANAGER_REGION"
+  --absent "MCD_AWS_SECRET_REGION"
+
+# One secret per credential field: one env var each, named after the field.
+KEY_TOKEN_ASM_FIELDS="${TMP_DIR}/key_token_asm_fields.yaml"
+cat >"${KEY_TOKEN_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_success "key/token via one ASM secret per field" "${KEY_TOKEN_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_MCD_ID" "MCD_AWS_SECRET_ID_MCD_TOKEN" \
+    "example-mcd-id-secret" "example-mcd-token-secret" \
+  --absent "MCD_TOKEN_FILE_PATH" "secretName: mcd-agent-token-secret" "kind: ExternalSecret"
+
+OAUTH_ASM_FIELDS="${TMP_DIR}/oauth_asm_fields.yaml"
+cat >"${OAUTH_ASM_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field" "${OAUTH_ASM_FIELDS}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+    "example-client-id-secret" "example-client-secret-secret" \
+  --absent "MCD_OAUTH_FILE_PATH" "secretName: mcd-oauth-secret" "kind: ExternalSecret"
+
+# No `enabled` key at all: the per-field terms in hermes.oauth.enabled must
+# still select OAuth.
+OAUTH_ASM_FIELDS_NO_ENABLED="${TMP_DIR}/oauth_asm_fields_no_enabled.yaml"
+cat >"${OAUTH_ASM_FIELDS_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_success "OAuth via one ASM secret per field, no enabled key" "${OAUTH_ASM_FIELDS_NO_ENABLED}" \
+  --present "MCD_AWS_SECRET_ID_CLIENT_ID" "MCD_AWS_SECRET_ID_CLIENT_SECRET" \
+  --absent "MCD_TOKEN_FILE_PATH"
+
+ASM_FIELDS_WITH_REGION="${TMP_DIR}/asm_fields_with_region.yaml"
+cat >"${ASM_FIELDS_WITH_REGION}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    region: us-east-1
+EOF
+assert_success "one ASM secret per field, with a region" "${ASM_FIELDS_WITH_REGION}" \
+  --present "MCD_AWS_SECRET_REGION"
+
+ASM_BASE64="${TMP_DIR}/asm_base64.yaml"
+cat >"${ASM_BASE64}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    base64Encoded: true
+EOF
+assert_success "ASM values marked base64-encoded" "${ASM_BASE64}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED"
+
+OAUTH_ASM_BASE64="${TMP_DIR}/oauth_asm_base64.yaml"
+cat >"${OAUTH_ASM_BASE64}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    secretId: example-oauth-secret-id
+    base64Encoded: true
+EOF
+assert_success "OAuth ASM values marked base64-encoded" "${OAUTH_ASM_BASE64}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED"
+
+ASM_BASE64_FIELDS="${TMP_DIR}/asm_base64_fields.yaml"
+cat >"${ASM_BASE64_FIELDS}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+    base64Encoded: true
+EOF
+assert_success "per-field ASM values marked base64-encoded" "${ASM_BASE64_FIELDS}" \
+  --present "MCD_AWS_SECRET_BASE64_ENCODED" "MCD_AWS_SECRET_ID_MCD_ID"
+
+# Decoding is opt-in, so the env var must be absent unless asked for.
+assert_success "ASM without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --absent "MCD_AWS_SECRET_BASE64_ENCODED"
+
+# --set-string forces a string rather than a YAML bool. Rejected outright: a
+# quoted value is truthy whatever it says, so "false" used to enable decoding,
+# and silently reading "true" as off would be the same trap in reverse.
+assert_failure "ASM base64Encoded=false as a string is rejected" "${KEY_TOKEN_ASM}" \
+  "base64Encoded must be a boolean" \
+  --set-string tokenSecret.awsSecretsManager.base64Encoded=false
+
+assert_failure "ASM base64Encoded=true as a string is rejected" "${KEY_TOKEN_ASM}" \
+  "base64Encoded must be a boolean" \
+  --set-string tokenSecret.awsSecretsManager.base64Encoded=true
+
+# The notes are the only confirmation the flag took effect — see the note in
+# templates/NOTES.txt.
+assert_notes "notes name base64-encoded values" "${ASM_BASE64}" \
+  --present "(base64-encoded)"
+
+assert_notes "notes name base64-encoded OAuth values" "${OAUTH_ASM_BASE64}" \
+  --present "(base64-encoded)"
+
+assert_notes "notes stay quiet without base64Encoded" "${KEY_TOKEN_ASM}" \
+  --present "read from AWS Secrets Manager" "that secret" \
+  --absent "(base64-encoded)"
+
+assert_notes "notes list every per-field secret" "${OAUTH_ASM_FIELDS}" \
+  --present "example-client-id-secret (client_id)" \
+    "example-client-secret-secret (client_secret)" "each of those secrets"
+# This shape creates no Kubernetes Secret either, so it must reject the
+# collectors for the same reason.
+ASM_FIELDS_COLLECTORS="${TMP_DIR}/asm_fields_collectors.yaml"
+cat >"${ASM_FIELDS_COLLECTORS}" <<'EOF'
+skipExternalSecrets: true
+metricsCollector:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "collectors + per-field ASM: metrics collector rejected" "${ASM_FIELDS_COLLECTORS}" \
+  "metricsCollector.enabled is true"
 
 MANUAL_KEY_TOKEN="${TMP_DIR}/manual_key_token.yaml"
 cat >"${MANUAL_KEY_TOKEN}" <<'EOF'
@@ -408,6 +609,80 @@ EOF
 assert_failure "tokenSecret.awsSecretsManager with region but no secretId" "${ASM_REGION_NO_SECRET_ID}" \
   "secretId"
 
+ASM_BOTH_SHAPES="${TMP_DIR}/asm_both_shapes.yaml"
+cat >"${ASM_BOTH_SHAPES}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    secretId: example-secret-id
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "ASM secretId together with per-field secrets" "${ASM_BOTH_SHAPES}" \
+  "sets both secretId and"
+
+# A half-configured block must not fall back: it still selects its method,
+# and fails naming the missing key.
+ASM_FIELDS_PARTIAL_TOKEN="${TMP_DIR}/asm_fields_partial_token.yaml"
+cat >"${ASM_FIELDS_PARTIAL_TOKEN}" <<'EOF'
+skipExternalSecrets: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+EOF
+assert_failure "per-field ASM missing mcdTokenSecretId" "${ASM_FIELDS_PARTIAL_TOKEN}" \
+  "is missing mcdTokenSecretId"
+
+ASM_FIELDS_PARTIAL_OAUTH="${TMP_DIR}/asm_fields_partial_oauth.yaml"
+cat >"${ASM_FIELDS_PARTIAL_OAUTH}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  enabled: true
+  awsSecretsManager:
+    clientSecretSecretId: example-client-secret-secret
+EOF
+assert_failure "per-field ASM missing clientIdSecretId" "${ASM_FIELDS_PARTIAL_OAUTH}" \
+  "is missing clientIdSecretId"
+
+# Pins that a half-configured block is rejected rather than falling back to
+# key/token auth. The missing-key message comes from the per-block key list
+# in hermes.auth.validate, keyed on the block name — it fires the same way
+# whether or not oauthSecret.enabled was ever set, so this does not exercise
+# the per-field terms in hermes.oauth.enabled (see the case above for that).
+ASM_FIELDS_PARTIAL_NO_ENABLED="${TMP_DIR}/asm_fields_partial_no_enabled.yaml"
+cat >"${ASM_FIELDS_PARTIAL_NO_ENABLED}" <<'EOF'
+skipExternalSecrets: true
+oauthSecret:
+  awsSecretsManager:
+    clientIdSecretId: example-client-id-secret
+EOF
+assert_failure "per-field ASM missing a key with no oauthSecret.enabled" "${ASM_FIELDS_PARTIAL_NO_ENABLED}" \
+  "is missing clientSecretSecretId"
+
+ASM_FIELDS_WITH_REMOTEREF="${TMP_DIR}/asm_fields_with_remoteref.yaml"
+cat >"${ASM_FIELDS_WITH_REMOTEREF}" <<'EOF'
+tokenSecret:
+  remoteRef:
+    key: example-secret
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "per-field ASM together with remoteRef" "${ASM_FIELDS_WITH_REMOTEREF}" \
+  "one source"
+
+BOTH_METHODS_FIELDS="${TMP_DIR}/both_methods_fields.yaml"
+cat >"${BOTH_METHODS_FIELDS}" <<'EOF'
+oauthSecret:
+  enabled: true
+tokenSecret:
+  awsSecretsManager:
+    mcdIdSecretId: example-mcd-id-secret
+    mcdTokenSecretId: example-mcd-token-secret
+EOF
+assert_failure "oauthSecret enabled with tokenSecret configured via per-field ASM keys" "${BOTH_METHODS_FIELDS}" \
+  "one authentication method at a time"
+
 # --- environment values files -------------------------------------------------
 
 ENV_VALUES_FILES=(
@@ -427,7 +702,10 @@ done
 TOTAL=$((PASS_COUNT + FAIL_COUNT))
 echo
 echo "==============================================="
-echo "render.sh: ${PASS_COUNT}/${TOTAL} passed, ${FAIL_COUNT} failed"
+echo "render.sh: ${PASS_COUNT}/${TOTAL} passed, ${FAIL_COUNT} failed, ${SKIP_COUNT} skipped"
+if [[ ${SKIP_COUNT} -ne 0 ]]; then
+  echo "  NOTES cases need Helm >= 4 (found ${HELM_VERSION})"
+fi
 echo "==============================================="
 
 if [[ ${FAIL_COUNT} -ne 0 ]]; then
