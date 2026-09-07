@@ -36,8 +36,14 @@ azure-mgmt-storage==21.2.1
     # via mcd-agent
 azure-storage-blob==12.23.0
     # via mcd-agent
+backports-zstd==1.7.0
+    # via
+    #   clickhouse-connect
+    #   mcd-agent
 bitarray==3.8.2
-    # via impyla
+    # via
+    #   impyla
+    #   mcd-agent
 blinker==1.9.0
     # via flask
 boto3==1.35.87
@@ -75,7 +81,7 @@ click==8.4.1
     #   flask
     #   mcd-agent
     #   presto-python-client
-clickhouse-connect==0.8.18
+clickhouse-connect==1.8.0
     # via mcd-agent
 cryptography==50.0.0
     # via
@@ -90,7 +96,7 @@ cryptography==50.0.0
     #   snowflake-connector-python
 databricks-sdk==0.39.0
     # via mcd-agent
-databricks-sql-connector==4.2.5
+databricks-sql-connector==4.5.0
     # via mcd-agent
 dataclasses-json==0.6.7
     # via agent-base
@@ -106,7 +112,7 @@ filelock==3.29.4
     # via
     #   mcd-agent
     #   snowflake-connector-python
-flask==2.3.3
+flask==3.1.3
     # via
     #   flask-compress
     #   mcd-agent
@@ -132,7 +138,9 @@ google-auth==2.55.0
     #   google-cloud-secret-manager
     #   google-cloud-storage
 google-auth-httplib2==0.4.0
-    # via google-api-python-client
+    # via
+    #   google-api-python-client
+    #   mcd-agent
 google-cloud-core==2.6.0
     # via google-cloud-storage
 google-cloud-dataform==0.6.2
@@ -175,14 +183,14 @@ httplib2==0.32.0
     #   google-api-python-client
     #   google-auth-httplib2
     #   mcd-agent
-ibm-db==3.2.7
+ibm-db==3.3.0
     # via mcd-agent
 idna==3.18
     # via
     #   mcd-agent
     #   requests
     #   snowflake-connector-python
-impyla==0.22.0
+impyla==0.24.0
     # via mcd-agent
 isodate==0.7.2
     # via
@@ -216,6 +224,7 @@ lz4==4.4.5
     #   trino
 markupsafe==3.0.3
     # via
+    #   flask
     #   jinja2
     #   mcd-agent
     #   werkzeug
@@ -223,7 +232,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.11.1
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@mrostan/thrift-cve-impyla-databricks-bump
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
@@ -259,6 +268,7 @@ packaging==26.2
 pandas==2.3.3
     # via
     #   databricks-sql-connector
+    #   mcd-agent
     #   salesforce-cdp-connector
 platformdirs==4.10.0
     # via
@@ -284,7 +294,9 @@ protobuf==5.29.6
 psycopg2-binary==2.9.12
     # via mcd-agent
 pure-sasl==0.6.2
-    # via thrift-sasl
+    # via
+    #   impyla
+    #   thrift-sasl
 pyarrow==23.0.1
     # via
     #   mcd-agent
@@ -330,7 +342,6 @@ python-dateutil==2.9.0.post0
     #   trino
 pytz==2026.2
     # via
-    #   clickhouse-connect
     #   pandas
     #   snowflake-connector-python
     #   trino
@@ -372,11 +383,9 @@ simple-salesforce==1.12.6
     # via mcd-agent
 six==1.17.0
     # via
-    #   impyla
     #   presto-python-client
     #   python-dateutil
     #   sseclient
-    #   thrift
     #   thrift-sasl
 snowflake-connector-python==4.7.2
     # via mcd-agent
@@ -386,12 +395,13 @@ sseclient==0.0.27
     # via agent-common
 tableauserverclient==0.38
     # via mcd-agent
-teradatasql==20.0.0.62
+teradatasql==20.0.0.68
     # via mcd-agent
-thrift==0.16.0
+thrift==0.24.0
     # via
     #   databricks-sql-connector
     #   impyla
+    #   mcd-agent
     #   thrift-sasl
 thrift-sasl==0.4.3
     # via impyla
@@ -443,5 +453,5 @@ zeep==4.3.3
     #   simple-salesforce
 zstandard==0.25.0
     # via
-    #   clickhouse-connect
+    #   mcd-agent
     #   trino
