@@ -148,8 +148,28 @@ class OnPremServiceTests(TestCase):
                 config_manager=self._config_manager,
                 logging_utils=self._logging_utils,
             )
-        setup_mock.assert_called_once_with(level=logging.WARNING)
+        setup_mock.assert_called_once_with(level=logging.WARNING, include_extra=False)
         self.assertIs(service._logs_service, sentinel_logs_service)
+
+    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def test_in_process_logs_include_extra_opt_in(self, setup_mock):
+        # Shipping the operation payload with every log multiplies backend log
+        # volume, so it is off unless MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA=true.
+        import logging
+
+        setup_mock.return_value = Mock()
+        with patch.dict(
+            "os.environ",
+            {
+                "MCD_IN_PROCESS_LOGS_ENABLED": "true",
+                "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA": "TRUE",
+            },
+        ):
+            OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+        setup_mock.assert_called_once_with(level=logging.INFO, include_extra=True)
 
     @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
     def test_in_process_logs_default_is_enabled(self, setup_mock):

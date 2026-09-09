@@ -268,6 +268,7 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 |---|---|
 | `logShipping` | `in-process` |
 | `inProcessLogs.logLevel` | `"INFO"` (in-process only; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` — `DEBUG` is excluded to avoid leaking third-party-library content) |
+| `inProcessLogs.includeExtra` | `false` (in-process only; when `true`, the structured attributes logged with each record — trace id, operation name, redacted operation payload — are shipped alongside the message. Adds the operation payload to every shipped line, so expect higher log volume) |
 | `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` (fluentd only) |
 | `logsCollector.image.repository` | `fluent/fluentd-kubernetes-daemonset` |
 | `logsCollector.image.tag` | `v1.18-debian-forward-1` |
@@ -276,7 +277,9 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 | `logsCollector.buffer.totalLimitSize` | `512MB` |
 | `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
-When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
+When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`) and `MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA` from `inProcessLogs.includeExtra` (default `false`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
+
+With `logShipping: none`, each stdout line is a JSON object with `ts`, `level`, `logger`, `msg`, `instance_id` and, when the record carries structured attributes, an `mcd` object holding them (for example `mcd.mcd_trace_id`, `mcd.mcd_operation_name` and the redacted operation payload). Log stacks that parse JSON (CloudWatch Container Insights exposes it as `log_processed.mcd.*`) can filter on those fields directly.
 
 ### Reading Credentials Directly from AWS Secrets Manager
 
