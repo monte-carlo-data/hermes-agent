@@ -216,11 +216,12 @@ Both shipping modes authenticate to the orchestrator using whichever authenticat
 | Property | Default |
 |---|---|
 | `inProcessLogs.logLevel` (chart) | `INFO` — rendered as `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` (`DEBUG` excluded to avoid leaking third-party-library content) |
+| `inProcessLogs.includeExtra` (chart) | `false` — rendered as `MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA`; when `true`, structured attributes (trace id, operation name, redacted operation payload) are shipped as siblings of `message`. Off by default because it adds the operation payload to every shipped line |
 | Buffer size | 10000 records (drops oldest on overflow; surfaces a synthetic warning on the next flush) |
 | Flush cadence | Reuses the existing "Logs sender" timer (300s by default) — no separate timer |
 | Persistence | None — buffer is in-memory; the agent flushes synchronously on graceful shutdown |
 
-Records are emitted as `{timestamp, message}`. The agent's `instance_id` is attached to the request via the `x-mcd-agent-instance-id` header (set by `BackendClient` on every call) and stamped onto each record orchestrator-side, so backend visibility matches the fluentd path.
+Records are emitted as `{timestamp, message}` (plus the structured attributes when `includeExtra` is on). The agent's `instance_id` is attached to the request via the `x-mcd-agent-instance-id` header (set by `BackendClient` on every call) and stamped onto each record orchestrator-side, so backend visibility matches the fluentd path.
 
 Set `logShipping: fluentd` to opt into the fluentd DaemonSet path instead — it tails container log files from the host and POSTs the same shape to `/api/v1/agent/logs`, but requires root pods (host log paths are root-owned). Tunables live under `logsCollector.*`; see [helm/README.md](helm/README.md#log-shipping) for the full property table.
 

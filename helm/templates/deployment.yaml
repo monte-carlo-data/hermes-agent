@@ -114,6 +114,8 @@ spec:
             {{- if eq .Values.logShipping "in-process" }}
             - name: MCD_IN_PROCESS_LOGS_LEVEL
               value: {{ .Values.inProcessLogs.logLevel | default "INFO" | quote }}
+            - name: MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA
+              value: {{ .Values.inProcessLogs.includeExtra | default false | quote }}
             {{- end }}
             {{- if include "hermes.oauth.enabled" . }}
             {{- if ne (include "hermes.auth.source" .) "awsSecretsManager" }}
