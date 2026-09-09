@@ -89,9 +89,10 @@ logShipping: in-process
 # helm/templates/_helpers.tpl.
 inProcessLogs:
   logLevel: "INFO"
-  # Ship the structured attributes logged with each record (trace id,
-  # operation name, redacted operation payload) alongside the message.
-  # Off by default: it adds the operation payload to every shipped log line.
+  # Also ship the structured attributes already on stdout (trace id, operation
+  # name, operation payload including SQL text) with each record. Redaction is
+  # best-effort; query text is not redacted. Off by default: increases log
+  # volume and agent memory use during backend outages.
   includeExtra: false
 
 # OAuth client_credentials authentication. When enabled, the agent

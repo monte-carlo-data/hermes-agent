@@ -258,11 +258,10 @@ class OnPremService(BaseEgressAgentService):
         # env var explicitly per the chart value, so this default only affects
         # non-helm deployments. The level is sourced from
         # MCD_IN_PROCESS_LOGS_LEVEL (default INFO, allowlist gated against
-        # DEBUG in the helm validator). MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA opts
-        # into shipping the structured attributes (trace id, operation name,
-        # redacted payload) with each record; off by default since it adds the
-        # operation payload to every shipped line. Reads are inlined here
-        # rather than at module import so tests can patch the environment.
+        # DEBUG in the helm validator). MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA is
+        # off by default because the shipped extras carry the operation
+        # payload. Reads are inlined here rather than at module import so
+        # tests can patch the environment.
         if os.getenv("MCD_IN_PROCESS_LOGS_ENABLED", "true").lower() != "true":
             return None
         level_name = os.getenv("MCD_IN_PROCESS_LOGS_LEVEL", "INFO").upper()

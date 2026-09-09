@@ -262,13 +262,13 @@ Top-level `logShipping` selects how agent logs reach Monte Carlo. Pick one:
 | `fluentd` | A fluentd DaemonSet tails container logs from the host and forwards them to the same endpoint. Requires root pods (host log paths are root-owned). |
 | `none` | No MC log shipping. The agent emits structured JSON to stdout — forward it through your own stack (CloudWatch, Splunk, Azure Monitor, etc.). |
 
-The `fluentd` mode honours the `logsCollector.*` settings below. The other modes ignore them.
+The `fluentd` mode honours the `logsCollector.*` settings below; `in-process` honours `inProcessLogs.*`. Each mode ignores the other's settings.
 
 | Property | Default |
 |---|---|
 | `logShipping` | `in-process` |
 | `inProcessLogs.logLevel` | `"INFO"` (in-process only; allowlist: `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` — `DEBUG` is excluded to avoid leaking third-party-library content) |
-| `inProcessLogs.includeExtra` | `false` (in-process only; when `true`, the structured attributes logged with each record — trace id, operation name, redacted operation payload — are shipped alongside the message. Adds the operation payload to every shipped line, so expect higher log volume) |
+| `inProcessLogs.includeExtra` | `false` (in-process only; when `true`, the structured attributes already on stdout — trace id, operation name, operation payload including SQL text — are also shipped to Monte Carlo as siblings of `message`. Redaction is best-effort; query text is not redacted. Increases log volume and agent memory use during backend outages) |
 | `logsCollector.logLevel` | `"INFO\|WARN\|WARNING\|ERROR\|CRITICAL"` (fluentd only) |
 | `logsCollector.image.repository` | `fluent/fluentd-kubernetes-daemonset` |
 | `logsCollector.image.tag` | `v1.18-debian-forward-1` |
@@ -277,9 +277,9 @@ The `fluentd` mode honours the `logsCollector.*` settings below. The other modes
 | `logsCollector.buffer.totalLimitSize` | `512MB` |
 | `logsCollector.resources` | CPU/memory requests and limits (`{}` = cluster defaults) |
 
-When `logShipping: in-process` is selected, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` on the agent container from `inProcessLogs.logLevel` (default `INFO`) and `MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA` from `inProcessLogs.includeExtra` (default `false`). `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
+With `logShipping: in-process`, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` and `MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA` from the `inProcessLogs.*` values. `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
 
-With `logShipping: none`, each stdout line is a JSON object with `ts`, `level`, `logger`, `msg`, `instance_id` and, when the record carries structured attributes, an `mcd` object holding them (for example `mcd.mcd_trace_id`, `mcd.mcd_operation_name` and the redacted operation payload). Log stacks that parse JSON (CloudWatch Container Insights exposes it as `log_processed.mcd.*`) can filter on those fields directly.
+The agent always writes JSON to stdout, regardless of `logShipping`. Each line has `ts`, `level`, `logger`, `msg`, `instance_id` and, when present, an `mcd` object with the structured attributes (`mcd.mcd_trace_id`, `mcd.mcd_operation_name`, operation payload). CloudWatch Container Insights exposes them as `log_processed.mcd.*`.
 
 ### Reading Credentials Directly from AWS Secrets Manager
 

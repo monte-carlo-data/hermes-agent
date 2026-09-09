@@ -128,7 +128,22 @@ class OnPremServiceTests(TestCase):
             trace_id="7890",
         )
 
-    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    def _build_service_with_env(self, **env):
+        base = {
+            "MCD_IN_PROCESS_LOGS_ENABLED": "true",
+            "MCD_IN_PROCESS_LOGS_LEVEL": "INFO",
+            "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA": "false",
+        }
+        with patch.dict("os.environ", {**base, **env}):
+            return OnPremService(
+                config_manager=self._config_manager,
+                logging_utils=self._logging_utils,
+            )
+
+    @patch(
+        "hermes.agent.service.on_prem_service.setup_in_process_log_shipping",
+        autospec=True,
+    )
     def test_in_process_logs_enabled_wires_logs_service(self, setup_mock):
         # Drives the activation branch of _build_logs_service: when
         # MCD_IN_PROCESS_LOGS_ENABLED=true, setup_in_process_log_shipping must
@@ -137,41 +152,27 @@ class OnPremServiceTests(TestCase):
 
         sentinel_logs_service = Mock()
         setup_mock.return_value = sentinel_logs_service
-        with patch.dict(
-            "os.environ",
-            {
-                "MCD_IN_PROCESS_LOGS_ENABLED": "true",
-                "MCD_IN_PROCESS_LOGS_LEVEL": "WARNING",
-            },
-        ):
-            service = OnPremService(
-                config_manager=self._config_manager,
-                logging_utils=self._logging_utils,
-            )
+        service = self._build_service_with_env(MCD_IN_PROCESS_LOGS_LEVEL="WARNING")
         setup_mock.assert_called_once_with(level=logging.WARNING, include_extra=False)
         self.assertIs(service._logs_service, sentinel_logs_service)
 
-    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    @patch(
+        "hermes.agent.service.on_prem_service.setup_in_process_log_shipping",
+        autospec=True,
+    )
     def test_in_process_logs_include_extra_opt_in(self, setup_mock):
         # Shipping the operation payload with every log multiplies backend log
         # volume, so it is off unless MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA=true.
         import logging
 
         setup_mock.return_value = Mock()
-        with patch.dict(
-            "os.environ",
-            {
-                "MCD_IN_PROCESS_LOGS_ENABLED": "true",
-                "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA": "TRUE",
-            },
-        ):
-            OnPremService(
-                config_manager=self._config_manager,
-                logging_utils=self._logging_utils,
-            )
+        self._build_service_with_env(MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA="TRUE")
         setup_mock.assert_called_once_with(level=logging.INFO, include_extra=True)
 
-    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    @patch(
+        "hermes.agent.service.on_prem_service.setup_in_process_log_shipping",
+        autospec=True,
+    )
     def test_in_process_logs_default_is_enabled(self, setup_mock):
         # When MCD_IN_PROCESS_LOGS_ENABLED is unset, log shipping must still
         # activate — Docker users without an explicit override should get logs
@@ -187,15 +188,14 @@ class OnPremServiceTests(TestCase):
         setup_mock.assert_called_once()
         self.assertIs(service._logs_service, sentinel_logs_service)
 
-    @patch("hermes.agent.service.on_prem_service.setup_in_process_log_shipping")
+    @patch(
+        "hermes.agent.service.on_prem_service.setup_in_process_log_shipping",
+        autospec=True,
+    )
     def test_in_process_logs_explicitly_disabled(self, setup_mock):
         # The opt-out path: anyone who genuinely doesn't want log shipping can
         # still suppress it with MCD_IN_PROCESS_LOGS_ENABLED=false.
-        with patch.dict("os.environ", {"MCD_IN_PROCESS_LOGS_ENABLED": "false"}):
-            service = OnPremService(
-                config_manager=self._config_manager,
-                logging_utils=self._logging_utils,
-            )
+        service = self._build_service_with_env(MCD_IN_PROCESS_LOGS_ENABLED="false")
         setup_mock.assert_not_called()
         self.assertIsNone(service._logs_service)
 

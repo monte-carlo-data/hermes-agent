@@ -539,6 +539,33 @@ EOF
 assert_success "collectors + key/token file: DaemonSet renders" "${COLLECTORS_KEY_TOKEN}" \
   --present "kind: DaemonSet" "secretName: mcd-agent-token-secret"
 
+# --- in-process log shipping ---------------------------------------------
+
+IN_PROCESS_LOGS_DEFAULT="${TMP_DIR}/in_process_logs_default.yaml"
+cat >"${IN_PROCESS_LOGS_DEFAULT}" <<'EOF'
+skipExternalSecrets: true
+logShipping: in-process
+EOF
+assert_success "in-process log shipping with defaults" "${IN_PROCESS_LOGS_DEFAULT}" \
+  --present "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA" "value: \"false\"" \
+    "MCD_IN_PROCESS_LOGS_LEVEL" "value: \"INFO\""
+
+IN_PROCESS_LOGS_CUSTOM="${TMP_DIR}/in_process_logs_custom.yaml"
+cat >"${IN_PROCESS_LOGS_CUSTOM}" <<'EOF'
+skipExternalSecrets: true
+logShipping: in-process
+inProcessLogs:
+  logLevel: "WARNING"
+  includeExtra: true
+EOF
+assert_success "in-process log shipping with extras on and a custom level" "${IN_PROCESS_LOGS_CUSTOM}" \
+  --present "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA" "value: \"true\"" "value: \"WARNING\""
+
+# logShipping: none comes from BASE_VALUES, so any baseline case pins this;
+# reuses manual key/token's values file rather than introducing a new one.
+assert_success "logShipping: none omits the in-process extras env var" "${MANUAL_KEY_TOKEN}" \
+  --absent "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA"
+
 # --- negative cases -----------------------------------------------------------
 
 BOTH_METHODS="${TMP_DIR}/both_methods.yaml"
