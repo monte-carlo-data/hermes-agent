@@ -89,9 +89,17 @@ logShipping: in-process
 # helm/templates/_helpers.tpl.
 inProcessLogs:
   logLevel: "INFO"
-  # Ship the structured attributes logged with each record (trace id,
-  # operation name, redacted operation payload) alongside the message.
-  # Off by default: it adds the operation payload to every shipped log line.
+  # Also ship the structured attributes already present on stdout (trace id,
+  # operation name, and the operation payload — command arguments such as SQL
+  # text and parameter values) as flat siblings of the shipped message.
+  # Credential-shaped keys/values are redacted on a best-effort, pattern-
+  # matching basis; data embedded in query text, including PII in literals,
+  # is not. Do not enable where query text may not leave the network.
+  # In-process only — fluentd drops these attributes. Off by default: it
+  # adds the operation payload to every shipped log line, and — since the
+  # buffer is bounded by record count, not bytes — a prolonged backend
+  # outage costs proportionally more agent memory and one larger recovery
+  # POST. Consider setting resources.limits.memory if you enable this.
   includeExtra: false
 
 # OAuth client_credentials authentication. When enabled, the agent
