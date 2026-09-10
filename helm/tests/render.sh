@@ -92,16 +92,20 @@ render() {
   set -e
 }
 
-# assert_rendered <renderer-fn> <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--set-string KEY=VALUE]...
+# assert_rendered <renderer-fn> <case-name> <values-file> [--present PATTERN]... [--absent PATTERN]... [--env NAME=VALUE]... [--set-string KEY=VALUE]...
 # Calls <renderer-fn> <values-file> [--set-string args...], which must set
 # RENDER_OUT / RENDER_RC, then asserts each --present pattern is a substring
-# of the output and each --absent pattern is not. Shared by assert_success
-# and assert_notes so pattern matching only lives in one place.
+# of the output and each --absent pattern is not. --env NAME=VALUE asserts a
+# container env entry renders `- name: NAME` immediately followed by
+# `value: "VALUE"`, so the value is tied to its name rather than matched
+# anywhere in the output. Shared by assert_success and assert_notes so pattern
+# matching only lives in one place.
 assert_rendered() {
   local renderer="$1" name="$2" values_file="$3"
   shift 3
   local -a present=()
   local -a absent=()
+  local -a env_entries=()
   local -a set_args=()
   local mode="present"
   local arg
@@ -109,11 +113,13 @@ assert_rendered() {
     case "${arg}" in
       --present) mode="present" ;;
       --absent) mode="absent" ;;
+      --env) mode="env" ;;
       --set-string) mode="set-string" ;;
       *)
         case "${mode}" in
           present) present+=("${arg}") ;;
           absent) absent+=("${arg}") ;;
+          env) env_entries+=("${arg}") ;;
           set-string) set_args+=(--set-string "${arg}") ;;
         esac
         ;;
@@ -140,6 +146,15 @@ assert_rendered() {
   for pattern in "${absent[@]}"; do
     if grep -qF -- "${pattern}" <<<"${RENDER_OUT}"; then
       problems+=("found forbidden substring: ${pattern}")
+    fi
+  done
+  local entry env_name env_value
+  for entry in "${env_entries[@]}"; do
+    env_name="${entry%%=*}"
+    env_value="${entry#*=}"
+    if ! grep -A1 -F -- "- name: ${env_name}" <<<"${RENDER_OUT}" \
+        | grep -qE -- "^[[:space:]]*value: \"${env_value}\"$"; then
+      problems+=("env ${env_name} not rendered with value \"${env_value}\"")
     fi
   done
 
@@ -547,8 +562,7 @@ skipExternalSecrets: true
 logShipping: in-process
 EOF
 assert_success "in-process log shipping with defaults" "${IN_PROCESS_LOGS_DEFAULT}" \
-  --present "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA" "value: \"false\"" \
-    "MCD_IN_PROCESS_LOGS_LEVEL" "value: \"INFO\""
+  --env "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA=false" "MCD_IN_PROCESS_LOGS_LEVEL=INFO"
 
 IN_PROCESS_LOGS_CUSTOM="${TMP_DIR}/in_process_logs_custom.yaml"
 cat >"${IN_PROCESS_LOGS_CUSTOM}" <<'EOF'
@@ -559,7 +573,7 @@ inProcessLogs:
   includeExtra: true
 EOF
 assert_success "in-process log shipping with extras on and a custom level" "${IN_PROCESS_LOGS_CUSTOM}" \
-  --present "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA" "value: \"true\"" "value: \"WARNING\""
+  --env "MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA=true" "MCD_IN_PROCESS_LOGS_LEVEL=WARNING"
 
 # logShipping: none comes from BASE_VALUES, so any baseline case pins this;
 # reuses manual key/token's values file rather than introducing a new one.

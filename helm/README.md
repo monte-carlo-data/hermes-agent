@@ -279,7 +279,7 @@ The `fluentd` mode honours the `logsCollector.*` settings below; `in-process` ho
 
 With `logShipping: in-process`, the chart renders `MCD_IN_PROCESS_LOGS_LEVEL` and `MCD_IN_PROCESS_LOGS_INCLUDE_EXTRA` from the `inProcessLogs.*` values. `DEBUG` is intentionally not in the allowlist — it would surface third-party-library content (request bodies, tokens) into shipped logs.
 
-The agent always writes JSON to stdout, regardless of `logShipping`. Each line has `ts`, `level`, `logger`, `msg`, `instance_id` and, when present, an `mcd` object with the structured attributes (`mcd.mcd_trace_id`, `mcd.mcd_operation_name`, operation payload). CloudWatch Container Insights exposes them as `log_processed.mcd.*`.
+The agent always writes JSON to stdout, regardless of `logShipping`. Each line has `ts`, `level`, `logger`, `msg`, `instance_id` and, when present, an `mcd` object with the structured attributes (`mcd.mcd_trace_id`, `mcd.mcd_operation_name`, operation payload). This is independent of `includeExtra`; redaction is best-effort and query text is not redacted. CloudWatch Container Insights exposes them as `log_processed.mcd.*`.
 
 ### Reading Credentials Directly from AWS Secrets Manager
 
