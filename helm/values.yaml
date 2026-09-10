@@ -89,6 +89,11 @@ logShipping: in-process
 # helm/templates/_helpers.tpl.
 inProcessLogs:
   logLevel: "INFO"
+  # Also ship the structured attributes already on stdout (trace id, operation
+  # name, operation payload including SQL text) with each record. Redaction is
+  # best-effort; query text is not redacted. Off by default: increases log
+  # volume and agent memory use during backend outages.
+  includeExtra: false
 
 # OAuth client_credentials authentication. When enabled, the agent
 # authenticates to the Monte Carlo backend via Bearer tokens instead of
