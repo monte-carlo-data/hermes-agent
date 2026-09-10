@@ -19,7 +19,7 @@ Monte Carlo components (first-party, not third-party dependencies)
 
 agent-base - https://github.com/monte-carlo-data/agent-base.git@v0.0.6
 agent-common - https://github.com/monte-carlo-data/agent-common.git@v0.2.10
-mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.13.0
+mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.13.1
 
 ==============================================================================
 Third-party Python packages (122)
