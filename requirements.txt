@@ -232,11 +232,11 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.0
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@ssmith/yet-2739-oracle-lob-serialization
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
-msal==1.37.0
+msal==1.38.0
     # via
     #   azure-identity
     #   mcd-agent
