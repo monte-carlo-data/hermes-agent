@@ -107,6 +107,14 @@ UPSTREAM_URL_KEYS = (
 # against the upstream repository by hand; extend this map if the script reports
 # another package needing manual verification.
 LICENSE_OVERRIDES = {
+    # The wheel declares `License-Expression: MIT` (PEP 639) and bundles the MIT text,
+    # but PyPI's JSON API reports both `license` and `license_expression` as null, so
+    # there is nothing for the script to read. Releases up to 1.38.2 published the
+    # classifier and needed no override.
+    "azure-core": (
+        "MIT",
+        "https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core",
+    ),
     # LICENSE is Apache 2.0.
     "google-crc32c": ("Apache-2.0", "https://github.com/googleapis/python-crc32c"),
     # LICENSE reads "licensed under the terms of the MIT license" behind a preamble,

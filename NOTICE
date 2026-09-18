@@ -17,9 +17,9 @@ files ship inside the image under /usr/share/doc/*/copyright.
 Monte Carlo components (first-party, not third-party dependencies)
 ==============================================================================
 
-agent-base - https://github.com/monte-carlo-data/agent-base.git@v0.0.6
-agent-common - https://github.com/monte-carlo-data/agent-common.git@v0.2.10
-mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.13.2
+agent-base - https://github.com/monte-carlo-data/agent-base.git@v0.0.7
+agent-common - https://github.com/monte-carlo-data/agent-common.git@v0.2.11
+mcd-agent - https://github.com/monte-carlo-data/apollo-agent.git@v1.13.6
 
 ==============================================================================
 Third-party Python packages (122)
@@ -28,7 +28,7 @@ Third-party Python packages (122)
 asn1crypto                   MIT  <https://github.com/wbond/asn1crypto>
 attrs                        MIT  <https://github.com/python-attrs/attrs>
 azure-common                 MIT License  <https://github.com/Azure/azure-sdk-for-python>
-azure-core                   MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core>
+azure-core                   MIT  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core>
 azure-identity               MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/identity/azure-identity>
 azure-keyvault-secrets       MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk>
 azure-mgmt-core              MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-mgmt-core>

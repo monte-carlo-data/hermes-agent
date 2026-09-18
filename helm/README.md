@@ -77,6 +77,7 @@ Each cloud platform requires specific resources and identity configuration befor
 
 **Storage:**
 - Grant the managed identity the "Storage Blob Data Contributor" role on the storage account or container
+- Outside AKS there is no managed identity to federate with — the agent authenticates with an Entra service principal, or a connection string where Entra is unreachable. See [Generic Agent: Object Storage](https://docs.getmontecarlo.com/docs/object-storage) for both.
 
 ### GCP (GKE)
 
@@ -124,7 +125,7 @@ The chart is configured via values files. See the example files for each platfor
 | `container.backendServiceUrl` | Orchestrator URL | _(required)_ |
 | `container.storageType` | Storage backend (`S3`, `GCS`, `AZURE_BLOB`) | _(required)_ |
 | `container.storageBucketName` | Bucket/container name | _(required)_ |
-| `container.storageAccountName` | Azure storage account name | _(Azure only)_ |
+| `container.storageAccountName` | Azure storage account name | _(Azure only; not needed when a connection string is used, which carries it)_ |
 | `container.opsRunnerThreadCount` | Concurrent operation threads | `"18"` |
 | `container.publisherThreadCount` | Concurrent result publisher threads | `"3"` |
 | `container.resources` | Pod CPU/memory requests and limits | `{}` (cluster defaults) |
@@ -554,3 +555,20 @@ The deployment template supports generic escape hatches for custom configuration
 | `extraInitContainers` | Additional init containers |
 | `extraVolumeMounts` | Additional volume mounts for the agent container |
 | `extraVolumes` | Additional volumes |
+
+`container.extraEnv` is rendered into the pod spec verbatim, as a native Kubernetes env list, so
+entries can use `valueFrom` rather than a literal value — which is how to supply a credential
+without putting it in the values file:
+
+```yaml
+container:
+  extraEnv:
+    - name: AZURE_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: mcd-agent-azure-credentials
+          key: client-secret
+```
+
+It renders last in the `env` list, so an entry named the same as a variable the chart already sets
+takes precedence over it.
