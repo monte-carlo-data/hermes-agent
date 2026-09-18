@@ -28,7 +28,7 @@ Third-party Python packages (122)
 asn1crypto                   MIT  <https://github.com/wbond/asn1crypto>
 attrs                        MIT  <https://github.com/python-attrs/attrs>
 azure-common                 MIT License  <https://github.com/Azure/azure-sdk-for-python>
-azure-core                   MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core>
+azure-core                   MIT  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-core>
 azure-identity               MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/identity/azure-identity>
 azure-keyvault-secrets       MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk>
 azure-mgmt-core              MIT License  <https://github.com/Azure/azure-sdk-for-python/tree/main/sdk/core/azure-mgmt-core>
