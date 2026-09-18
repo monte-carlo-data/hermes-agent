@@ -4,11 +4,11 @@
 #
 #    pip-compile --max-rounds=60 --strip-extras requirements.in
 #
-agent-base @ git+https://github.com/monte-carlo-data/agent-base.git@v0.0.6
+agent-base @ git+https://github.com/monte-carlo-data/agent-base.git@v0.0.7
     # via
     #   agent-common
     #   mcd-agent
-agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.10
+agent-common @ git+https://github.com/monte-carlo-data/agent-common.git@v0.2.11
     # via -r requirements.in
 asn1crypto==1.5.1
     # via snowflake-connector-python
@@ -19,7 +19,7 @@ attrs==26.1.0
     #   zeep
 azure-common==1.1.28
     # via azure-mgmt-storage
-azure-core==1.38.2
+azure-core==1.41.0
     # via
     #   azure-identity
     #   azure-keyvault-secrets
@@ -174,7 +174,7 @@ grpcio==1.81.1
     #   grpcio-status
 grpcio-status==1.71.2
     # via google-api-core
-gunicorn==26.0.0
+gunicorn==26.2.0
     # via mcd-agent
 hdbcli==2.18.27
     # via mcd-agent
@@ -232,7 +232,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.2
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.6
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
@@ -261,7 +261,6 @@ orjson==3.11.9
     #   trino
 packaging==26.2
     # via
-    #   gunicorn
     #   marshmallow
     #   snowflake-connector-python
     #   tableauserverclient
