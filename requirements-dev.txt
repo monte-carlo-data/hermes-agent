@@ -45,7 +45,7 @@ pathspec==1.1.1
     # via black
 pip-tools==7.6.1
     # via -r requirements-dev.in
-platformdirs==4.10.0
+platformdirs==4.12.2
     # via
     #   -c requirements.txt
     #   black
