@@ -232,7 +232,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.6
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.7
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
@@ -269,8 +269,9 @@ pandas==2.3.3
     #   databricks-sql-connector
     #   mcd-agent
     #   salesforce-cdp-connector
-platformdirs==4.10.0
+platformdirs==4.12.2
     # via
+    #   mcd-agent
     #   snowflake-connector-python
     #   zeep
 presto-python-client==0.8.3

@@ -41,9 +41,10 @@ Each cloud platform requires specific resources and identity configuration befor
 - An AWS Secrets Manager secret containing `{"mcd_id": "...", "mcd_token": "..."}`
 - An IAM role granting the ESO service account access to Secrets Manager
 
-**Identity/Auth (IRSA):**
+**Identity/Auth (EKS Pod Identity):**
 - The chart's `secretStore.provider.aws.role` must be set to the IAM role ARN that can read Secrets Manager secrets
-- The IAM role's trust policy must allow the EKS cluster's OIDC provider to assume it from the `mcd-agent-service-account` service account in the `mcd-agent` namespace
+- The IAM role's trust policy must allow `pods.eks.amazonaws.com` to assume it, and a pod identity association must bind it to the `mcd-agent-service-account` service account in the `mcd-agent` namespace — this requires the `eks-pod-identity-agent` add-on on the cluster
+- IRSA is supported as an alternative, though it is not what the Terraform module provisions. See [Object Storage](https://docs.getmontecarlo.com/docs/object-storage) for the trust policy and service-account annotation
 
 **Storage:**
 - The IAM role (or a separate role attached to the node instance profile) needs `s3:GetObject`, `s3:PutObject`, and `s3:ListBucket` on the storage bucket
