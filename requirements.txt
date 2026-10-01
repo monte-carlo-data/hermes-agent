@@ -314,7 +314,7 @@ pycryptodome==3.23.0
     # via
     #   mcd-agent
     #   teradatasql
-pyjwt==2.13.0
+pyjwt==2.15.0
     # via
     #   databricks-sql-connector
     #   mcd-agent
