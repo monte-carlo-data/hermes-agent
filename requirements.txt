@@ -232,7 +232,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.7
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.8
     # via -r requirements.in
 more-itertools==11.1.0
     # via simple-salesforce
@@ -315,7 +315,7 @@ pycryptodome==3.23.0
     # via
     #   mcd-agent
     #   teradatasql
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via
     #   databricks-sql-connector
     #   mcd-agent
@@ -433,7 +433,7 @@ tzlocal==5.4.3
     # via trino
 uritemplate==4.2.0
     # via google-api-python-client
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   agent-common
     #   botocore
