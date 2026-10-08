@@ -5,16 +5,14 @@ import pyarrow
 from apollo.agent.proxy_client_factory import ProxyClientFactory
 from databricks.sql import utils
 
-# Set by apollo's connector_patches on the wrapped databricks.sql.utils._concat_arrow_tables.
-_PATCHED_ATTR = "_apollo_tolerates_duplicate_column_names"
-
 
 class TestDatabricksConnectorPatches(TestCase):
     """
-    hermes runs Databricks queries only through apollo, and the duplicate-column-name patch is
-    installed when apollo's Databricks SQL warehouse client module is imported. Build the client
-    the way hermes does, through ProxyClientFactory, so an apollo bump that drops or moves the
-    patch fails here instead of failing customer queries with ArrowInvalid.
+    hermes runs Databricks queries only through apollo. Build the client the way hermes does,
+    through ProxyClientFactory, so this fails whenever such a client would fail duplicate-column
+    queries with ArrowInvalid, whether apollo drops or moves its patch or the connector regresses.
+    It checks behavior, not apollo internals, so it keeps passing if apollo retires the patch
+    once the connector accepts duplicate column names upstream.
     """
 
     @patch("databricks.sql.connect", return_value=Mock())
@@ -33,6 +31,12 @@ class TestDatabricksConnectorPatches(TestCase):
         )
 
         connect.assert_called_once()
-        self.assertTrue(getattr(utils._concat_arrow_tables, _PATCHED_ATTR, False))
         table = pyarrow.table([[1], [2]], names=["id", "id"])
-        self.assertEqual(table, utils._concat_arrow_tables([table]))
+        try:
+            result = utils._concat_arrow_tables([table])
+        except pyarrow.ArrowInvalid:
+            self.fail(
+                "Databricks connector rejects duplicate column names; "
+                "apollo's patch is not installed via ProxyClientFactory"
+            )
+        self.assertEqual(table, result)
