@@ -261,7 +261,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.10
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.11
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
@@ -454,7 +454,7 @@ starlette==1.7.0
     #   sse-starlette
 tableauserverclient==0.38
     # via mcd-agent
-teradatasql==20.0.0.68
+teradatasql==20.0.0.72
     # via mcd-agent
 thrift==0.24.0
     # via
