@@ -196,14 +196,18 @@ h11==0.16.0
 hdbcli==2.18.27
     # via mcd-agent
 httpcore==1.0.9
-    # via httpx
+    # via
+    #   httpx
+    #   mcd-agent
 httplib2==0.32.0
     # via
     #   google-api-python-client
     #   google-auth-httplib2
     #   mcd-agent
 httpx==0.28.1
-    # via mcp
+    # via
+    #   mcd-agent
+    #   mcp
 httpx-sse==0.4.3
     # via mcp
 ibm-db==3.3.0
@@ -261,7 +265,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.11
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.13
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
