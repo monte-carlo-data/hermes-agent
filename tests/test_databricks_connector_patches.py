@@ -36,7 +36,7 @@ class TestDatabricksConnectorPatches(TestCase):
             result = utils._concat_arrow_tables([table])
         except pyarrow.ArrowInvalid:
             self.fail(
-                "Databricks connector rejects duplicate column names; "
-                "apollo's patch is not installed via ProxyClientFactory"
+                "Databricks client built via ProxyClientFactory rejects duplicate column "
+                "names; check the databricks-sql-connector pin (>=4.8.0) and apollo"
             )
         self.assertEqual(table, result)
