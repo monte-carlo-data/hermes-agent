@@ -26,7 +26,12 @@ USER mcdagent
 RUN python -m venv $VENV_DIR
 
 COPY --chown=mcdagent:mcdagent requirements.txt ./
-RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
+# Bundled test suites ship public test keys and fake credentials that secret
+# scanners flag. Nothing runs them; removed in the same RUN so no layer keeps them.
+RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt \
+    && rm -rf $VENV_DIR/lib/python*/site-packages/Crypto/SelfTest \
+              $VENV_DIR/lib/python*/site-packages/pandas/tests \
+              $VENV_DIR/lib/python*/site-packages/impala/tests
 # VULN-423: pip and setuptools must be upgraded post-install. Exact-pinned for
 # reproducible builds and to bound supply-chain exposure on the upgrade step
 # itself; bump explicitly when picking up new patches. pip's vendored SBOM lists
