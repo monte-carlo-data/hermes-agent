@@ -1,6 +1,6 @@
 # When bumping this tag, also bump the matching apollo Python pin in requirements.in
 # so the runtime apt deps and the venv-installed apollo source agree on the version.
-FROM montecarlodata/agent:1.13.20-system-base AS base
+FROM montecarlodata/agent:1.13.22-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
@@ -26,11 +26,19 @@ USER mcdagent
 RUN python -m venv $VENV_DIR
 
 COPY --chown=mcdagent:mcdagent requirements.txt ./
-RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt
+# Bundled test suites ship public test keys and fake credentials that secret
+# scanners flag. Nothing runs them; removed in the same RUN so no layer keeps them.
+RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt \
+    && rm -rf $VENV_DIR/lib/python*/site-packages/Crypto/SelfTest \
+              $VENV_DIR/lib/python*/site-packages/pandas/tests \
+              $VENV_DIR/lib/python*/site-packages/impala/tests
 # VULN-423: pip and setuptools must be upgraded post-install. Exact-pinned for
 # reproducible builds and to bound supply-chain exposure on the upgrade step
-# itself; bump explicitly when picking up new patches.
-RUN . $VENV_DIR/bin/activate && pip install pip==26.1.1 setuptools==82.0.1
+# itself; bump explicitly when picking up new patches. pip's vendored SBOM lists
+# pip-internal deps (an old setuptools) that scanners report as image CVEs; it's
+# removed in the same RUN so no layer keeps it.
+RUN . $VENV_DIR/bin/activate && pip install pip==26.3 setuptools==84.2.1 \
+    && rm -f $VENV_DIR/lib/python*/site-packages/pip/_vendor/bom.cdx.json
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY --chown=mcdagent:mcdagent gunicorn.conf.py ./
