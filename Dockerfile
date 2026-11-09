@@ -1,6 +1,6 @@
 # When bumping this tag, also bump the matching apollo Python pin in requirements.in
 # so the runtime apt deps and the venv-installed apollo source agree on the version.
-FROM montecarlodata/agent:1.13.22-system-base AS base
+FROM montecarlodata/agent:1.14.0-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
@@ -31,7 +31,15 @@ COPY --chown=mcdagent:mcdagent requirements.txt ./
 RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt \
     && rm -rf $VENV_DIR/lib/python*/site-packages/Crypto/SelfTest \
               $VENV_DIR/lib/python*/site-packages/pandas/tests \
-              $VENV_DIR/lib/python*/site-packages/impala/tests
+              $VENV_DIR/lib/python*/site-packages/impala/tests \
+    # teradatasql bundles its Go driver for every OS/CPU (Windows, macOS, AIX, POWER,
+    # 32-bit, ARM) but loads only the one for the running platform: teradatasql.so,
+    # or teradatasql.fips.so on FIPS hosts (see teradatasql/__init__.py). Scanners
+    # flag the vendored Go modules in every copy, so keep only the native ones.
+    && TD=$(echo $VENV_DIR/lib/python*/site-packages/teradatasql) \
+    && rm -f $TD/*.dll $TD/*.dylib $TD/teradatasql.aix.so $TD/teradatasql.power.so $TD/teradatasql.x86.so \
+    && if [ "$(uname -m)" = x86_64 ]; then \
+         rm -f $TD/teradatasql.arm.so $TD/teradatasql.arm.fips.so && test -f $TD/teradatasql.so; fi
 # VULN-423: pip and setuptools must be upgraded post-install. Exact-pinned for
 # reproducible builds and to bound supply-chain exposure on the upgrade step
 # itself; bump explicitly when picking up new patches. pip's vendored SBOM lists
