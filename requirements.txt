@@ -265,7 +265,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.13.22
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.0
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
