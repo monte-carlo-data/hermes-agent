@@ -265,7 +265,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.0
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.1
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
@@ -462,7 +462,7 @@ tableauserverclient==0.38
     # via mcd-agent
 teradatasql==20.0.0.74
     # via mcd-agent
-thrift==0.24.0
+thrift==0.25.0
     # via
     #   databricks-sql-connector
     #   impyla
