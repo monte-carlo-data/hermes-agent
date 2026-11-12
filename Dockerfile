@@ -69,4 +69,6 @@ RUN . $VENV_DIR/bin/activate && \
 
 FROM base AS hermes-generic
 
-CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && exec gunicorn --config gunicorn.conf.py --bind :$PORT hermes.agent.main:app"]
+# No --bind here: gunicorn.conf.py binds 127.0.0.1:$PORT by default, or
+# 0.0.0.0:$PORT when MCD_HTTP_LISTEN_ALL_INTERFACES=true (SEC-4041).
+CMD ["/bin/sh", "-c", ". $VENV_DIR/bin/activate && exec gunicorn --config gunicorn.conf.py hermes.agent.main:app"]

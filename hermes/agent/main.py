@@ -21,7 +21,9 @@ if pod_name:
 
 from hermes.agent.service.on_prem_service import OnPremService
 
-SERVICE_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+# Local development only (see __main__); under gunicorn the bind address comes
+# from gunicorn.conf.py, which defaults to loopback.
+SERVICE_HOST = os.getenv("SERVER_HOST", "127.0.0.1")
 SERVICE_PORT = os.getenv("SERVER_PORT") or "8081"
 
 """

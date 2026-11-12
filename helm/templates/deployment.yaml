@@ -44,21 +44,39 @@ spec:
           securityContext:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- $port := .Values.container.port | default 8080 }}
+          {{- /* SEC-4041: the HTTP listener binds loopback unless
+                 container.exposeHttpListener is true, so the probes exec curl
+                 inside the container instead of connecting to the pod IP. */}}
+          {{- if .Values.container.exposeHttpListener }}
           ports:
-            - containerPort: {{ .Values.container.port | default 8080 }}
+            - containerPort: {{ $port }}
           livenessProbe:
             httpGet:
               path: /api/v1/test/healthcheck
-              port: {{ .Values.container.port | default 8080 }}
+              port: {{ $port }}
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:
             httpGet:
               path: /api/v1/test/healthcheck
-              port: {{ .Values.container.port | default 8080 }}
+              port: {{ $port }}
             initialDelaySeconds: 10
             periodSeconds: 10
+          {{- else }}
+          livenessProbe:
+            exec:
+              command: ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ $port }}/api/v1/test/healthcheck"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:{{ $port }}/api/v1/test/healthcheck"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          {{- end }}
           {{- with .Values.container.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -70,6 +88,10 @@ spec:
                   fieldPath: metadata.name
             - name: PORT
               value: {{ .Values.container.port | default 8080 | quote }}
+            {{- if .Values.container.exposeHttpListener }}
+            - name: MCD_HTTP_LISTEN_ALL_INTERFACES
+              value: "true"
+            {{- end }}
             - name: BACKEND_SERVICE_URL
               value: {{ .Values.container.backendServiceUrl | quote }}
             - name: MCD_AGENT_WRAPPER_TYPE
