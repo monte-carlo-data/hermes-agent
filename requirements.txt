@@ -178,13 +178,14 @@ grpc-google-iam-v1==0.14.4
     # via
     #   google-cloud-dataform
     #   google-cloud-secret-manager
-grpcio==1.81.1
+grpcio==1.85.1
     # via
     #   google-api-core
     #   google-cloud-secret-manager
     #   googleapis-common-protos
     #   grpc-google-iam-v1
     #   grpcio-status
+    #   mcd-agent
 grpcio-status==1.71.2
     # via google-api-core
 gunicorn==26.2.0
@@ -265,7 +266,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.1
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.3
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
