@@ -1,0 +1,24 @@
+{{- /*
+SEC-4041: the agent is egress-only. This policy selects the agent pods and
+allows no ingress, so nothing in the cluster can connect to them. Egress is
+not restricted (policyTypes lists Ingress only). Probes run as exec inside the
+container by default, so they don't depend on it. Clusters whose CNI does not
+enforce NetworkPolicy ignore it.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mcd-agent-deny-ingress
+  namespace: {{ .Values.namespace | default "mcd-agent" | quote }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mcd-agent
+  policyTypes:
+    - Ingress
+  {{- with .Values.networkPolicy.ingress }}
+  ingress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

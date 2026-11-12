@@ -11,6 +11,7 @@ Deploys the Monte Carlo Hermes agent and its observability sidecars into a Kuber
 | DaemonSet | `metrics-collector` | `metricsCollector.enabled` |
 | Namespace | configurable (default `mcd-agent`) | `namespaceCreate` (default `true`) |
 | ServiceAccount | `mcd-agent-service-account` | Always |
+| NetworkPolicy | `mcd-agent-deny-ingress` | `networkPolicy.enabled` (default `true`) |
 | SecretStore | `mcd-agent-secret-store` | `!skipExternalSecrets` |
 | ExternalSecret | `mcd-agent-token-secret` | key/token auth with a `tokenSecret.remoteRef` source |
 | ExternalSecret | `mcd-oauth-secret` | OAuth with an `oauthSecret.remoteRef` source |
@@ -135,6 +136,9 @@ The chart is configured via values files. See the example files for each platfor
 | `namespace` | Kubernetes namespace | `mcd-agent` |
 | `namespaceCreate` | Let the release create and own the namespace | `true` |
 | `replicaCount` | Agent replicas (ignored when `autoscaling.enabled`) | `2` |
+| `container.exposeHttpListener` | Bind the health listener to `0.0.0.0` and use `httpGet` probes (see [Network Exposure](#network-exposure)) | `false` |
+| `networkPolicy.enabled` | Render a NetworkPolicy that denies all ingress to the agent pods | `true` |
+| `networkPolicy.ingress` | NetworkPolicy ingress rules to allow, rendered verbatim | `[]` |
 
 ### Namespace Ownership
 
@@ -210,6 +214,42 @@ firewallCa:
 ```
 
 > Note: The `logs-collector` (fluentd) daemonset is **not** hardened — fluentd reads host paths (`/var/log/pods`, `/var/log/containers`) that are typically root-owned, so it must run as root. If your cluster enforces `runAsNonRoot` for daemonsets, leave `logShipping` at its default (`in-process`): the agent ships its own logs to the same `/api/v1/agent/logs` endpoint and no DaemonSet is required. To opt out of MC log shipping entirely and route agent logs through your own logging stack, set `logShipping: none` (the agent emits structured JSON to stdout).
+
+### Network Exposure
+
+The agent is egress-only: it opens every connection itself and accepts none. It
+still runs a small HTTP listener for health and troubleshooting routes
+(`/api/v1/test/healthcheck`, `/health`, `/reachability`), and by default that
+listener is closed to everything outside the container:
+
+- It binds to `127.0.0.1:8080`, so only processes inside the pod can reach it.
+- The liveness and readiness probes `exec` `curl` against `127.0.0.1` inside the
+  container, so they don't need the port exposed.
+- The `mcd-agent-deny-ingress` NetworkPolicy allows no ingress to the agent pods.
+  Egress is not restricted. Clusters whose CNI doesn't enforce NetworkPolicy
+  ignore it.
+
+Troubleshooting still works from inside the pod:
+
+```bash
+kubectl exec -n mcd-agent deploy/mcd-agent-deployment -- \
+  curl -s -X POST localhost:8080/api/v1/test/reachability
+```
+
+To expose the listener on the pod IP instead (for example, when a cluster policy
+requires network probes), opt in:
+
+```yaml
+container:
+  exposeHttpListener: true   # binds 0.0.0.0, declares containerPort, httpGet probes
+networkPolicy:
+  enabled: true
+  ingress: []                # add rules here for anything that must connect in
+```
+
+The agent reads the same setting from the `MCD_HTTP_LISTEN_ALL_INTERFACES=true`
+environment variable, which the chart sets when `container.exposeHttpListener`
+is `true`.
 
 ### Resource Requests and Limits
 

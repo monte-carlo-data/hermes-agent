@@ -516,6 +516,51 @@ EOF
 assert_success "namespaceCreate: false" "${NAMESPACE_FALSE}" \
   --absent "kind: Namespace"
 
+# --- HTTP listener exposure (SEC-4041) ----------------------------------------
+
+LISTENER_DEFAULT="${TMP_DIR}/listener_default.yaml"
+cat >"${LISTENER_DEFAULT}" <<'EOF'
+skipExternalSecrets: true
+EOF
+assert_success "listener default: loopback, exec probes, deny-ingress policy" "${LISTENER_DEFAULT}" \
+  --present "kind: NetworkPolicy" "name: mcd-agent-deny-ingress" "- Ingress" \
+    'command: ["curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/api/v1/test/healthcheck"]' \
+  --absent "MCD_HTTP_LISTEN_ALL_INTERFACES" "containerPort:" "httpGet:" "ingress:" "- Egress"
+
+LISTENER_EXPOSED="${TMP_DIR}/listener_exposed.yaml"
+cat >"${LISTENER_EXPOSED}" <<'EOF'
+skipExternalSecrets: true
+container:
+  exposeHttpListener: true
+  port: 9090
+EOF
+assert_success "listener exposed: opt-in env, containerPort, httpGet probes" "${LISTENER_EXPOSED}" \
+  --present "containerPort: 9090" "httpGet:" "port: 9090" "kind: NetworkPolicy" \
+  --env MCD_HTTP_LISTEN_ALL_INTERFACES=true PORT=9090 \
+  --absent "exec:" "http://127.0.0.1:"
+
+NETWORK_POLICY_OFF="${TMP_DIR}/network_policy_off.yaml"
+cat >"${NETWORK_POLICY_OFF}" <<'EOF'
+skipExternalSecrets: true
+networkPolicy:
+  enabled: false
+EOF
+assert_success "networkPolicy disabled" "${NETWORK_POLICY_OFF}" \
+  --absent "kind: NetworkPolicy"
+
+NETWORK_POLICY_INGRESS="${TMP_DIR}/network_policy_ingress.yaml"
+cat >"${NETWORK_POLICY_INGRESS}" <<'EOF'
+skipExternalSecrets: true
+networkPolicy:
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+EOF
+assert_success "networkPolicy with allowed ingress rules" "${NETWORK_POLICY_INGRESS}" \
+  --present "kind: NetworkPolicy" "ingress:" "app: prometheus"
+
 COLLECTORS_ASM="${TMP_DIR}/collectors_asm.yaml"
 cat >"${COLLECTORS_ASM}" <<'EOF'
 skipExternalSecrets: true

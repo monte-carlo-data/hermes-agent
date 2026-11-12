@@ -193,10 +193,10 @@ kubectl get pods -n mcd-agent
 # Watch agent logs
 kubectl logs -n mcd-agent -l app=mcd-agent -f
 
-# Test the health endpoint
-kubectl port-forward -n mcd-agent svc/mcd-agent-loadbalancer-service 8080:8080
-# In another terminal:
-curl http://localhost:8080/api/v1/test/health
+# Test the health endpoint. The listener binds to loopback inside the pod
+# (see "Network Exposure" in helm/README.md), so run curl in the container.
+kubectl exec -n mcd-agent deploy/mcd-agent-deployment -- \
+  curl -s http://localhost:8080/api/v1/test/health
 ```
 
 ### Observability — Log Collection
