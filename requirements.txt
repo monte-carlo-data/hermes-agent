@@ -200,7 +200,7 @@ httpcore==1.0.9
     # via
     #   httpx
     #   mcd-agent
-httplib2==0.32.0
+httplib2==0.32.1
     # via
     #   google-api-python-client
     #   google-auth-httplib2
@@ -266,7 +266,7 @@ marshmallow==3.26.2
     # via
     #   dataclasses-json
     #   mcd-agent
-mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.4
+mcd-agent @ git+https://github.com/monte-carlo-data/apollo-agent.git@v1.14.5
     # via -r requirements.in
 mcp==1.30.0
     # via mcd-agent
