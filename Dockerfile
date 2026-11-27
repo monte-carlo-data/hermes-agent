@@ -1,6 +1,6 @@
 # When bumping this tag, also bump the matching apollo Python pin in requirements.in
 # so the runtime apt deps and the venv-installed apollo source agree on the version.
-FROM montecarlodata/agent:1.14.8-system-base AS base
+FROM montecarlodata/agent:1.14.9-system-base AS base
 
 # Allow statements and log messages to immediately appear in the logs
 ENV PYTHONUNBUFFERED=True
@@ -44,9 +44,14 @@ RUN . $VENV_DIR/bin/activate && pip install --no-cache-dir -r requirements.txt \
 # reproducible builds and to bound supply-chain exposure on the upgrade step
 # itself; bump explicitly when picking up new patches. pip's vendored SBOM lists
 # pip-internal deps (an old setuptools) that scanners report as image CVEs; it's
-# removed in the same RUN so no layer keeps it.
+# removed in the same RUN so no layer keeps it. AIKIDO-2026-777134: setuptools
+# vendors platformdirs 4.4.0, which nothing imports; the `ls` fails the build if
+# a setuptools bump moves it.
 RUN . $VENV_DIR/bin/activate && pip install pip==26.3 setuptools==84.2.1 \
-    && rm -f $VENV_DIR/lib/python*/site-packages/pip/_vendor/bom.cdx.json
+    && ls -d $VENV_DIR/lib/python*/site-packages/setuptools/_vendor/platformdirs-*.dist-info \
+    && rm -rf $VENV_DIR/lib/python*/site-packages/pip/_vendor/bom.cdx.json \
+              $VENV_DIR/lib/python*/site-packages/setuptools/_vendor/platformdirs \
+              $VENV_DIR/lib/python*/site-packages/setuptools/_vendor/platformdirs-*.dist-info
 
 # copy sources in the last step so we don't install python libraries due to a change in source code
 COPY --chown=mcdagent:mcdagent gunicorn.conf.py ./
